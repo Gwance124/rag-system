@@ -1,5 +1,8 @@
+import json
 import pandas as pd
-from chunking.pipeline import filter_pilot_papers
+from chunking.tokenizer import FakeTokenizer
+from chunking.types import ChunkRecord
+from chunking.pipeline import filter_pilot_papers, run_chunking, write_chunks, write_failures
 
 
 def test_filters_by_category_and_year():
@@ -22,3 +25,35 @@ def test_output_has_only_expected_columns():
     ])
     result = filter_pilot_papers(df)
     assert list(result.columns) == ["id", "title", "abstract", "categories", "yymm_id", "latex"]
+
+
+def test_run_chunking_produces_records_and_skips_failures():
+    df = pd.DataFrame([
+        {"id": "good.1", "title": "T", "abstract": "A",
+         "latex": "# Intro\n\nSome text here.\n"},
+        {"id": "bad.1", "title": "T2", "abstract": "A2", "latex": None},
+    ])
+    records, failures = run_chunking(df, FakeTokenizer(), max_tokens=100)
+    assert len(records) == 1
+    assert records[0].id == "good.1"
+    assert len(failures) == 1
+    assert failures[0]["id"] == "bad.1"
+
+
+def test_write_chunks_and_failures_roundtrip(tmp_path):
+    records = [
+        ChunkRecord(
+            id="1", chunk_index=0, section_path="Intro",
+            text_with_context="ctx", text_raw="raw",
+        )
+    ]
+    chunks_path = tmp_path / "chunks.parquet"
+    write_chunks(records, str(chunks_path))
+    df = pd.read_parquet(chunks_path)
+    assert df.iloc[0]["id"] == "1"
+
+    failures_path = tmp_path / "failures.jsonl"
+    write_failures([{"id": "2", "error": "boom"}], str(failures_path))
+    with open(failures_path) as f:
+        line = json.loads(f.readline())
+    assert line == {"id": "2", "error": "boom"}

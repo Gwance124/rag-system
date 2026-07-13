@@ -1,5 +1,9 @@
+import json
 import re
 import pandas as pd
+from chunking.types import ParsedPaper
+from chunking.markdown_parse import parse_sections
+from chunking.chunker import chunk_paper
 
 _YEAR_RE = re.compile(r'^(\d{2})(\d{2})')
 
@@ -21,3 +25,31 @@ def filter_pilot_papers(
     return filtered[
         ["id", "title", "abstract", "categories", "yymm_id", "latex"]
     ].reset_index(drop=True)
+
+
+def parse_paper_row(row) -> ParsedPaper:
+    sections = parse_sections(row["latex"])
+    return ParsedPaper(id=row["id"], title=row["title"], abstract=row["abstract"], sections=sections)
+
+
+def run_chunking(pilot_df: pd.DataFrame, tokenizer, max_tokens: int = 512):
+    records = []
+    failures = []
+    for _, row in pilot_df.iterrows():
+        try:
+            paper = parse_paper_row(row)
+            records.extend(chunk_paper(paper, tokenizer, max_tokens=max_tokens))
+        except Exception as exc:
+            failures.append({"id": row["id"], "error": str(exc)})
+    return records, failures
+
+
+def write_chunks(records, output_path: str):
+    df = pd.DataFrame([r.__dict__ for r in records])
+    df.to_parquet(output_path, index=False)
+
+
+def write_failures(failures, output_path: str):
+    with open(output_path, "w") as f:
+        for failure in failures:
+            f.write(json.dumps(failure) + "\n")
