@@ -86,10 +86,10 @@ Stages 0-3 are meant to run unattended against real data on the work laptop/serv
 | `id` | string | arxiv id, matches source `id` |
 | `chunk_index` | int | 0-based position within paper |
 | `section_path` | string | e.g. `"3.2 Related Work"` |
-| `block_types` | string | e.g. `"paragraph,paragraph,code"` |
-| `token_count` | int | tokens in `text_with_context`, via real tokenizer |
 | `text_with_context` | string | `"{title}\n{abstract}\n{section_path}\n\n{body}"` |
 | `text_raw` | string | body only, no prefix |
+
+Token count and block-type composition aren't persisted — they're transient checks computed during Stage 4's manual inspection (via the real tokenizer) rather than stored fields, since nothing downstream consumes them yet.
 
 **`parse_failures.jsonl`**: one line per paper that failed to parse — `{id, error}`.
 
