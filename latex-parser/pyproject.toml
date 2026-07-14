@@ -1,16 +1,20 @@
 [project]
-name = "rag-system-retrieval"
+name = "rag-system-chunking"
 version = "0.1.0"
 requires-python = ">=3.10"
-dependencies = []
+dependencies = [
+    "pandas>=2.0",
+    "pyarrow>=14.0",
+    "transformers>=4.40",
+    "matplotlib>=3.8",
+]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
-eval = ["datasets>=2.19"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "latex-parser/tests"]
-pythonpath = ["src", "latex-parser/src"]
+testpaths = ["tests"]
+pythonpath = ["src"]
 
 [build-system]
 requires = ["setuptools>=68"]

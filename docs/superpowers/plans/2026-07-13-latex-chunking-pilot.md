@@ -4,6 +4,8 @@
 
 **Goal:** Build a pipeline that parses the arxiv-latex `latex` field for a pilot corpus (cs.IR papers from 2020+, ~18,727 papers) into structure-aware ~512-token chunks with document-context prefixes, written to parquet for manual inspection.
 
+All paths below are relative to `latex-parser/`; run the pilot commands from that directory.
+
 **Architecture:** A small `chunking` Python package (src layout) with pure-function modules — tokenizer abstraction, markdown-tree parser, greedy chunker, and pandas-based pipeline glue — driven by thin CLI scripts for each pipeline stage (filter, chunk, inspect, spot-check). Unit tests use a fake whitespace tokenizer so the whole suite runs without network access or the real model; the real HF tokenizer is only loaded when the CLI scripts run against real data on the work laptop/server.
 
 **Tech Stack:** Python 3.11, pandas + pyarrow (parquet I/O), transformers (`AutoTokenizer`, local-files-only), pytest.
@@ -24,7 +26,7 @@
 ## File Structure
 
 ```
-rag-system/
+rag-system/latex-parser/
   pyproject.toml
   src/
     chunking/
