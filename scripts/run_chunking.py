@@ -14,11 +14,17 @@ def main():
     parser.add_argument("--chunks-output", required=True)
     parser.add_argument("--failures-output", required=True)
     parser.add_argument("--max-tokens", type=int, default=512)
+    parser.add_argument(
+        "--progress-every", type=int, default=200,
+        help="Print progress every N papers (0 to disable)",
+    )
     args = parser.parse_args()
 
     df = pd.read_parquet(args.pilot_papers)
     tokenizer = HFTokenizer(args.tokenizer_path)
-    records, failures = run_chunking(df, tokenizer, max_tokens=args.max_tokens)
+    records, failures = run_chunking(
+        df, tokenizer, max_tokens=args.max_tokens, progress_every=args.progress_every
+    )
 
     write_chunks(records, args.chunks_output)
     write_failures(failures, args.failures_output)

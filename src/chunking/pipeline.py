@@ -37,22 +37,27 @@ def parse_paper_row(row) -> ParsedPaper:
     return ParsedPaper(id=row["id"], title=row["title"], abstract=row["abstract"], sections=sections)
 
 
-def run_chunking(pilot_df: pd.DataFrame, tokenizer, max_tokens: int = 512):
+def run_chunking(pilot_df: pd.DataFrame, tokenizer, max_tokens: int = 512, progress_every: int = 0):
     records = []
     failures = []
-    for _, row in pilot_df.iterrows():
+    total = len(pilot_df)
+    for i, (_, row) in enumerate(pilot_df.iterrows(), 1):
         latex_text = row["latex"]
         if isinstance(latex_text, str) and len(latex_text) > MAX_LATEX_CHARS:
             failures.append({
                 "id": row["id"],
                 "error": f"latex field too large ({len(latex_text)} chars > {MAX_LATEX_CHARS}), skipped",
             })
-            continue
-        try:
-            paper = parse_paper_row(row)
-            records.extend(chunk_paper(paper, tokenizer, max_tokens=max_tokens))
-        except Exception as exc:
-            failures.append({"id": row["id"], "error": str(exc)})
+        else:
+            try:
+                paper = parse_paper_row(row)
+                records.extend(chunk_paper(paper, tokenizer, max_tokens=max_tokens))
+            except Exception as exc:
+                failures.append({"id": row["id"], "error": str(exc)})
+
+        if progress_every and i % progress_every == 0:
+            print(f"[{i}/{total}] papers processed, {len(records)} chunks so far, {len(failures)} failures")
+
     return records, failures
 
 
