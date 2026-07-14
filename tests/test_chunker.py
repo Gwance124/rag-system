@@ -72,6 +72,37 @@ def test_oversized_single_block_is_split_at_sentence_boundaries():
         assert fragment in rejoined
 
 
+class _BloatedWordTokenizer:
+    """Simulates content where each whitespace-delimited 'word' is itself
+    token-heavy, e.g. \\pdfglyphtounicode{Aacute}{00A0}-style commands
+    (backslashes, braces, camelCase) that tokenize to far more than one
+    BPE token per word - unlike natural prose, where the word-count-based
+    _looks_definitely_oversized heuristic assumes tokens ~= words."""
+
+    def count_tokens(self, text: str) -> int:
+        return len(text.split()) * 12
+
+
+def test_word_count_heuristic_cannot_fool_the_actual_token_budget():
+    # 200 "words", no periods or blank lines (mimics thousands of
+    # \pdfglyphtounicode commands each on their own line) - word count (200)
+    # stays well under the 20x cheap-oversized threshold for max_tokens=50
+    # (50*20=1000), but at 12 tokens/word this piece is actually 2400 tokens,
+    # 48x over budget. Every chunk produced must still respect max_tokens
+    # against the *real* tokenizer, not just the word-count proxy.
+    long_text = " ".join(f"cmd{i}" for i in range(200))
+    section = Section(
+        heading="Bibliography", level=1, path="Bibliography",
+        blocks=[Block("paragraph", long_text)],
+    )
+    paper = _paper([section])
+    tokenizer = _BloatedWordTokenizer()
+    chunks = chunk_paper(paper, tokenizer, max_tokens=50)
+    assert len(chunks) > 1
+    for c in chunks:
+        assert tokenizer.count_tokens(c.text_raw) <= 50
+
+
 def test_pathological_block_with_no_boundaries_is_hard_split_by_words():
     # No periods, no blank lines - sentence/blank-line splitting finds nothing,
     # so this must fall back to a bounded word-window split rather than ever

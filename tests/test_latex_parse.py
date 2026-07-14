@@ -228,6 +228,24 @@ def test_commented_out_input_command_is_not_resolved():
     assert "This should not appear" not in sections[0].blocks[0].text
 
 
+def test_drops_content_after_printbibliography_command():
+    # biblatex/biber templates use \printbibliography instead of the older
+    # \bibliography{} command - content after it (e.g. \input{glyphtounicode},
+    # a common ACM/IEEE PDF-accessibility boilerplate file) must be stripped
+    # the same way, not left dangling in the last real section.
+    text = (
+        "\\begin{document}\n"
+        "\\section{Method}\n"
+        "We propose X.\n"
+        "\\section{Bibliography}\n"
+        "\\printbibliography\n"
+        "\\input{glyphtounicode}\n"
+        "\\end{document}\n"
+    )
+    sections = parse_sections(text)
+    assert [s.heading for s in sections] == ["Method"]
+
+
 def test_drops_raw_bibtex_entries_if_present_inline():
     text = (
         "\\begin{document}\n"

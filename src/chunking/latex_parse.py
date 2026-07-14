@@ -12,6 +12,7 @@ _FILE_HEADER_RE = re.compile(r'={10,}\s*FILE:\s*(?P<filename>\S+)\s*={10,}\s*')
 _BEGIN_DOCUMENT_RE = re.compile(r'\\begin\{document\}')
 _THEBIBLIOGRAPHY_RE = re.compile(r'\\begin\{thebibliography\}.*?(\\end\{thebibliography\}|$)', re.DOTALL)
 _BIBLIOGRAPHY_CMD_RE = re.compile(r'\\bibliography\{[^}]*\}.*', re.DOTALL)
+_PRINTBIBLIOGRAPHY_RE = re.compile(r'\\printbibliography(\[[^\]]*\])?.*', re.DOTALL)
 _END_DOCUMENT_RE = re.compile(r'\\end\{document\}.*', re.DOTALL)
 _COMMENT_RE = re.compile(r'(?<!\\)%.*')
 _INCLUDE_RE = re.compile(r'\\(?:input|include)\{(?P<name>[^}]*)\}')
@@ -62,6 +63,7 @@ def _strip_preamble(text: str) -> str:
 def _strip_bibliography(text: str) -> str:
     text = _THEBIBLIOGRAPHY_RE.sub('', text)
     text = _BIBLIOGRAPHY_CMD_RE.sub('', text)
+    text = _PRINTBIBLIOGRAPHY_RE.sub('', text)
     text = _END_DOCUMENT_RE.sub('', text)
     return text
 

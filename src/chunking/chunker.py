@@ -28,6 +28,31 @@ def _looks_definitely_oversized(text: str, max_tokens: int) -> bool:
     return len(text.split()) > max_tokens * _CHEAP_SIZE_MULTIPLIER
 
 
+def _bound_piece_to_max_tokens(piece: str, tokenizer: Tokenizer, max_tokens: int) -> list[str]:
+    """Guarantees every returned piece's *real* token count is <= max_tokens
+    (barring a single unsplittable word that alone exceeds it). The
+    word-count heuristic above is a cheap proxy and can under-trigger for
+    content where individual "words" are themselves token-heavy (e.g.
+    \\pdfglyphtounicode{Aacute}{00A0}-style commands) - this verifies
+    against the real tokenizer and keeps shrinking until it's actually true."""
+    tokens = tokenizer.count_tokens(piece)
+    if tokens <= max_tokens:
+        return [piece]
+
+    words = piece.split()
+    if len(words) <= 1:
+        return [piece]  # can't split a single "word" any further
+
+    # Scale the word window by the observed token/word ratio (with a safety
+    # margin) rather than guessing - this converges in a couple of passes
+    # even when that ratio is wildly higher than the 1:1 prose assumption.
+    words_per_piece = max(1, int(len(words) * max_tokens / tokens * 0.9))
+    result = []
+    for sub in _hard_split_by_words(piece, words_per_piece):
+        result.extend(_bound_piece_to_max_tokens(sub, tokenizer, max_tokens))
+    return result
+
+
 def _split_oversized_block(block: Block, tokenizer: Tokenizer, max_tokens: int) -> list[Block]:
     if block.block_type == "code":
         pieces = block.text.split("\n\n")
@@ -53,6 +78,16 @@ def _split_oversized_block(block: Block, tokenizer: Tokenizer, max_tokens: int) 
 
     for piece in pieces:
         piece_tokens = tokenizer.count_tokens(piece)
+
+        if piece_tokens > max_tokens:
+            if current:
+                sub_blocks.append(Block(block.block_type, joiner.join(current)))
+                current = []
+                current_tokens = 0
+            for bounded in _bound_piece_to_max_tokens(piece, tokenizer, max_tokens):
+                sub_blocks.append(Block(block.block_type, bounded))
+            continue
+
         if current and current_tokens + piece_tokens > max_tokens:
             sub_blocks.append(Block(block.block_type, joiner.join(current)))
             current = []
