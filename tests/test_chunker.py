@@ -60,3 +60,21 @@ def test_oversized_single_block_is_split_at_sentence_boundaries():
         "A third one too.",
     ]:
         assert fragment in rejoined
+
+
+def test_pathological_block_with_no_boundaries_is_hard_split_by_words():
+    # No periods, no blank lines - sentence/blank-line splitting finds nothing,
+    # so this must fall back to a bounded word-window split rather than ever
+    # tokenizing the whole 2000-word blob as one piece.
+    long_text = " ".join(f"word{i}" for i in range(2000))
+    section = Section(
+        heading="Method", level=1, path="Method",
+        blocks=[Block("paragraph", long_text)],
+    )
+    paper = _paper([section])
+    chunks = chunk_paper(paper, FakeTokenizer(), max_tokens=50)
+    assert len(chunks) > 1
+    for c in chunks:
+        assert len(c.text_raw.split()) <= 50
+    rejoined_words = " ".join(c.text_raw for c in chunks).split()
+    assert rejoined_words == long_text.split()

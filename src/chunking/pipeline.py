@@ -7,10 +7,12 @@ from chunking.chunker import chunk_paper
 
 _YEAR_RE = re.compile(r'^(\d{2})(\d{2})')
 
-# Well above any real paper (avg ~39k tokens / ~150k chars) but well below
-# the multi-million-token anomalies seen in a handful of dataset rows -
-# skip those rather than let a degenerate row stall the whole run.
-MAX_LATEX_CHARS = 2_000_000
+# chunk_paper/chunker.py now bounds tokenizer calls at the block level
+# regardless of a paper's total length, so this is only a last-resort
+# circuit breaker against true dataset corruption (e.g. multiple papers'
+# content accidentally concatenated into one row), not a filter on
+# legitimately long papers (which can run several MB, e.g. large appendices).
+MAX_LATEX_CHARS = 50_000_000
 
 
 def _year_from_yymm_id(yymm_id: str) -> int:

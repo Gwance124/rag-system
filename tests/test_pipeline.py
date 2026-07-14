@@ -40,8 +40,10 @@ def test_run_chunking_produces_records_and_skips_failures():
     assert failures[0]["id"] == "bad.1"
 
 
-def test_run_chunking_skips_absurdly_large_latex_field():
-    huge_latex = "# Intro\n\n" + ("word " * 1_000_000)  # far exceeds MAX_LATEX_CHARS
+def test_run_chunking_skips_only_truly_pathological_latex_field():
+    # ~55M chars - well past MAX_LATEX_CHARS, representative of corrupted/
+    # concatenated dataset rows rather than a real single paper.
+    huge_latex = "# Intro\n\n" + ("word " * 11_000_000)
     df = pd.DataFrame([
         {"id": "huge.1", "title": "T", "abstract": "A", "latex": huge_latex},
     ])
@@ -50,6 +52,21 @@ def test_run_chunking_skips_absurdly_large_latex_field():
     assert len(failures) == 1
     assert failures[0]["id"] == "huge.1"
     assert "too large" in failures[0]["error"]
+
+
+def test_run_chunking_does_not_skip_a_legitimately_long_paper():
+    # A real long paper (e.g. one with a large appendix) can run several MB -
+    # well above the old 2M-char threshold but nowhere near true corruption.
+    # It should be chunked normally, not rejected for its size alone.
+    section_body = "One sentence here. " * 20_000  # ~400k chars of real prose
+    long_latex = f"# Intro\n\n{section_body}\n\n## Appendix\n\n{section_body}\n"
+    df = pd.DataFrame([
+        {"id": "long.1", "title": "T", "abstract": "A", "latex": long_latex},
+    ])
+    records, failures = run_chunking(df, FakeTokenizer(), max_tokens=100)
+    assert failures == []
+    assert len(records) > 1
+    assert all(r.id == "long.1" for r in records)
 
 
 def test_write_chunks_and_failures_roundtrip(tmp_path):
