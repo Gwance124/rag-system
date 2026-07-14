@@ -7,6 +7,7 @@ from chunking.stats import (
     summarize_tokens,
     paper_cleaned_token_count,
     build_token_stats_report,
+    compute_pool_token_stats,
 )
 
 
@@ -30,6 +31,11 @@ def main():
         "--stats-output", default="token_stats.json",
         help="Where to write per-paper raw/cleaned token counts and summary stats as JSON "
         "(requires --pilot-papers), so this data can be reviewed without rerunning the script",
+    )
+    parser.add_argument(
+        "--pool-plot-output", default="pool_token_stats.png",
+        help="Where to write the chunk-level vs paper-level token stats bar chart, "
+        "computed over every chunk/paper in --chunks (not just the sample)",
     )
     args = parser.parse_args()
 
@@ -92,7 +98,12 @@ def main():
             f"{cleaned_stats['min']:>12}{cleaned_stats['max']:>12}"
         )
 
-        plot_raw_vs_cleaned(raw_stats, cleaned_stats, args.plot_output)
+        plot_grouped_bars(
+            {"raw (estimate)": raw_stats, "cleaned (actual)": cleaned_stats},
+            ylabel="tokens per paper",
+            title="Raw vs cleaned per-paper token usage",
+            output_path=args.plot_output,
+        )
         print(f"\nWrote token stats chart to {args.plot_output}")
 
         report = build_token_stats_report(
@@ -101,29 +112,58 @@ def main():
             cleaned_token_counts=cleaned_token_counts,
             chunk_token_counts=chunk_token_counts,
         )
-        with open(args.stats_output, "w") as f:
-            json.dump(report, f, indent=2)
-        print(f"Wrote token stats data to {args.stats_output}")
+    else:
+        report = {}
+
+    print()
+    print(f"tokenizing full pool: {len(df)} chunks across {df['id'].nunique()} papers...")
+    pool_stats = compute_pool_token_stats(list(df["id"]), list(df["text_with_context"]), tokenizer)
+    print("token usage across the full paper pool: per-chunk vs per-paper (total)")
+    print(f"{'':10}{'total':>14}{'avg':>12}{'median':>12}{'min':>12}{'max':>12}")
+    for label, s in [("chunk", pool_stats["chunk_stats"]), ("paper", pool_stats["paper_stats"])]:
+        print(
+            f"{label:10}"
+            f"{s['total']:>14}{s['avg']:>12.1f}{s['median']:>12.1f}"
+            f"{s['min']:>12}{s['max']:>12}"
+        )
+
+    plot_grouped_bars(
+        {"chunk": pool_stats["chunk_stats"], "paper": pool_stats["paper_stats"]},
+        ylabel="tokens",
+        title="Full pool token usage: per-chunk vs per-paper",
+        output_path=args.pool_plot_output,
+    )
+    print(f"\nWrote pool token stats chart to {args.pool_plot_output}")
+
+    report["pool_chunk_summary"] = pool_stats["chunk_stats"]
+    report["pool_paper_summary"] = pool_stats["paper_stats"]
+    with open(args.stats_output, "w") as f:
+        json.dump(report, f, indent=2)
+    print(f"Wrote token stats data to {args.stats_output}")
 
 
-def plot_raw_vs_cleaned(raw_stats: dict, cleaned_stats: dict, output_path: str):
+def plot_grouped_bars(series: dict, ylabel: str, title: str, output_path: str):
+    """series: {label -> stats dict with avg/median/min/max keys}. One group
+    of bars per label, one bar per metric within the group."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
     metrics = ["avg", "median", "min", "max"]
-    raw_values = [raw_stats[m] for m in metrics]
-    cleaned_values = [cleaned_stats[m] for m in metrics]
-
+    n_series = len(series)
+    width = 0.8 / n_series
     x = range(len(metrics))
-    width = 0.35
+
     fig, ax = plt.subplots(figsize=(8, 5))
-    ax.bar([i - width / 2 for i in x], raw_values, width, label="raw (estimate)")
-    ax.bar([i + width / 2 for i in x], cleaned_values, width, label="cleaned (actual)")
+    for i, (label, stats) in enumerate(series.items()):
+        offset = (i - (n_series - 1) / 2) * width
+        values = [stats[m] for m in metrics]
+        ax.bar([xi + offset for xi in x], values, width, label=label)
+
     ax.set_xticks(list(x))
     ax.set_xticklabels(metrics)
-    ax.set_ylabel("tokens per paper")
-    ax.set_title("Raw vs cleaned per-paper token usage")
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
     ax.legend()
     fig.tight_layout()
     fig.savefig(output_path)

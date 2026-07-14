@@ -20,6 +20,22 @@ def paper_cleaned_token_count(chunk_texts: list[str], tokenizer) -> int:
     return sum(tokenizer.count_tokens(t) for t in chunk_texts)
 
 
+def compute_pool_token_stats(paper_ids: list[str], texts: list[str], tokenizer) -> dict:
+    """Tokenizes every chunk text in the pool (not just a sample) and returns
+    both the chunk-level distribution (one value per chunk) and the
+    paper-level distribution (each paper's chunks summed to one total)."""
+    chunk_token_counts = [tokenizer.count_tokens(t) for t in texts]
+
+    paper_totals: dict[str, int] = {}
+    for paper_id, tokens in zip(paper_ids, chunk_token_counts):
+        paper_totals[paper_id] = paper_totals.get(paper_id, 0) + tokens
+
+    return {
+        "chunk_stats": summarize_tokens(chunk_token_counts),
+        "paper_stats": summarize_tokens(list(paper_totals.values())),
+    }
+
+
 def build_token_stats_report(
     paper_ids: list[str],
     raw_token_estimates: list[int],

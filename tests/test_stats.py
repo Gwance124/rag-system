@@ -3,6 +3,7 @@ from chunking.stats import (
     summarize_tokens,
     paper_cleaned_token_count,
     build_token_stats_report,
+    compute_pool_token_stats,
 )
 from chunking.tokenizer import FakeTokenizer
 
@@ -42,3 +43,14 @@ def test_build_token_stats_report_includes_per_paper_values_and_summaries():
     assert report["raw_summary"] == summarize_tokens([100, 200])
     assert report["cleaned_summary"] == summarize_tokens([40, 60])
     assert report["chunk_summary"] == summarize_tokens([20, 20, 30, 30])
+
+
+def test_compute_pool_token_stats_covers_every_chunk_and_sums_per_paper():
+    tok = FakeTokenizer()
+    paper_ids = ["p1", "p1", "p2"]
+    texts = ["one two", "three four five", "six seven eight nine"]
+    stats = compute_pool_token_stats(paper_ids, texts, tok)
+    # chunk-level: token count of each individual chunk, across the whole pool
+    assert stats["chunk_stats"] == summarize_tokens([2, 3, 4])
+    # paper-level: total tokens per paper (p1's two chunks summed, p2's one chunk)
+    assert stats["paper_stats"] == summarize_tokens([5, 4])
