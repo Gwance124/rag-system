@@ -1,7 +1,7 @@
 import argparse
+import os
 import pandas as pd
-from chunking.tokenizer import HFTokenizer
-from chunking.pipeline import run_chunking, write_chunks, write_failures
+from chunking.pipeline import run_chunking_parallel, write_chunks, write_failures
 
 
 def main():
@@ -18,12 +18,19 @@ def main():
         "--progress-every", type=int, default=200,
         help="Print progress every N papers (0 to disable)",
     )
+    parser.add_argument(
+        "--workers", type=int, default=os.cpu_count() or 4,
+        help="Number of worker processes (defaults to all CPU cores)",
+    )
     args = parser.parse_args()
 
     df = pd.read_parquet(args.pilot_papers)
-    tokenizer = HFTokenizer(args.tokenizer_path)
-    records, failures = run_chunking(
-        df, tokenizer, max_tokens=args.max_tokens, progress_every=args.progress_every
+    records, failures = run_chunking_parallel(
+        df,
+        args.tokenizer_path,
+        max_tokens=args.max_tokens,
+        workers=args.workers,
+        progress_every=args.progress_every,
     )
 
     write_chunks(records, args.chunks_output)

@@ -1,4 +1,5 @@
 import json
+import multiprocessing as mp
 import re
 import pandas as pd
 from chunking.types import ParsedPaper
@@ -39,26 +40,81 @@ def parse_paper_row(row) -> ParsedPaper:
     return ParsedPaper(id=row["id"], title=row["title"], abstract=row["abstract"], sections=sections)
 
 
+def _chunk_one_row(row, tokenizer, max_tokens: int):
+    """Parse+chunk a single row. Returns (records, failure_or_None). Shared by
+    both the serial and multiprocess-parallel paths so the per-row logic
+    (size guard, error handling) only lives in one place."""
+    latex_text = row["latex"]
+    if isinstance(latex_text, str) and len(latex_text) > MAX_LATEX_CHARS:
+        return [], {
+            "id": row["id"],
+            "error": f"latex field too large ({len(latex_text)} chars > {MAX_LATEX_CHARS}), skipped",
+        }
+    try:
+        paper = parse_paper_row(row)
+        return chunk_paper(paper, tokenizer, max_tokens=max_tokens), None
+    except Exception as exc:
+        return [], {"id": row["id"], "error": str(exc)}
+
+
 def run_chunking(pilot_df: pd.DataFrame, tokenizer, max_tokens: int = 512, progress_every: int = 0):
     records = []
     failures = []
     total = len(pilot_df)
     for i, (_, row) in enumerate(pilot_df.iterrows(), 1):
-        latex_text = row["latex"]
-        if isinstance(latex_text, str) and len(latex_text) > MAX_LATEX_CHARS:
-            failures.append({
-                "id": row["id"],
-                "error": f"latex field too large ({len(latex_text)} chars > {MAX_LATEX_CHARS}), skipped",
-            })
-        else:
-            try:
-                paper = parse_paper_row(row)
-                records.extend(chunk_paper(paper, tokenizer, max_tokens=max_tokens))
-            except Exception as exc:
-                failures.append({"id": row["id"], "error": str(exc)})
+        row_records, failure = _chunk_one_row(row, tokenizer, max_tokens)
+        records.extend(row_records)
+        if failure is not None:
+            failures.append(failure)
 
         if progress_every and i % progress_every == 0:
             print(f"[{i}/{total}] papers processed, {len(records)} chunks so far, {len(failures)} failures")
+
+    return records, failures
+
+
+_worker_tokenizer = None
+_worker_max_tokens = None
+
+
+def _init_worker(tokenizer_path: str, max_tokens: int):
+    global _worker_tokenizer, _worker_max_tokens
+    from chunking.tokenizer import HFTokenizer
+
+    _worker_tokenizer = HFTokenizer(tokenizer_path)
+    _worker_max_tokens = max_tokens
+
+
+def _worker_chunk_row(row):
+    return _chunk_one_row(row, _worker_tokenizer, _worker_max_tokens)
+
+
+def run_chunking_parallel(
+    pilot_df: pd.DataFrame,
+    tokenizer_path: str,
+    max_tokens: int = 512,
+    workers: int = 4,
+    progress_every: int = 0,
+):
+    """Same behavior as run_chunking, but spreads papers across `workers`
+    processes - each worker loads its own copy of the real tokenizer once
+    (via _init_worker) rather than passing a loaded tokenizer across the
+    process boundary."""
+    records = []
+    failures = []
+    rows = [row for _, row in pilot_df.iterrows()]
+    total = len(rows)
+
+    with mp.get_context("spawn").Pool(
+        processes=workers, initializer=_init_worker, initargs=(tokenizer_path, max_tokens)
+    ) as pool:
+        for i, (row_records, failure) in enumerate(pool.imap(_worker_chunk_row, rows, chunksize=16), 1):
+            records.extend(row_records)
+            if failure is not None:
+                failures.append(failure)
+
+            if progress_every and i % progress_every == 0:
+                print(f"[{i}/{total}] papers processed, {len(records)} chunks so far, {len(failures)} failures")
 
     return records, failures
 
