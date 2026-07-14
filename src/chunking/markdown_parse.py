@@ -8,10 +8,18 @@ _CITE_RE = re.compile(r'\\(?:cite|ref|label)\{[^}]*\}')
 _EQUATION_RE = re.compile(r'^\$\$.*\$\$$', re.DOTALL)
 _FIGURE_RE = re.compile(r'^(!\[.*\]\(.*\)|Figure\s+\d+)', re.IGNORECASE)
 _TABLE_LINE_RE = re.compile(r'^\|.*\|$')
+# Raw BibTeX entries (e.g. from a bundled .bib file) - a reliable signal of
+# bibliography content regardless of what heading it's filed under or where
+# in the document it appears, unlike heading-name matching alone.
+_BIBTEX_ENTRY_RE = re.compile(r'^@[A-Za-z]+\s*\{')
 
 
 def _clean_latex_bloat(text: str) -> str:
     return _CITE_RE.sub('', text)
+
+
+def _looks_like_bibtex(text: str) -> bool:
+    return bool(_BIBTEX_ENTRY_RE.match(text.strip()))
 
 
 def _classify_block(raw: str) -> str:
@@ -41,7 +49,7 @@ def parse_sections(latex_text: str) -> list[Section]:
         nonlocal paragraph_lines
         if paragraph_lines:
             text = _clean_latex_bloat("\n".join(paragraph_lines)).strip()
-            if text and current_section is not None:
+            if text and current_section is not None and not _looks_like_bibtex(text):
                 current_section.blocks.append(Block(_classify_block(text), text))
             paragraph_lines = []
 

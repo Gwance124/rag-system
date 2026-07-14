@@ -21,6 +21,38 @@ def test_drops_bibliography_section():
     assert [s.heading for s in sections] == ["Method"]
 
 
+def test_drops_bibtex_entries_regardless_of_heading_name():
+    text = (
+        "# refs.bib\n\n"
+        "@article{smith2020foo,\n"
+        "  author = {Smith, J.},\n"
+        "  title = {Some Paper},\n"
+        "  year = {2020}\n"
+        "}\n\n"
+        "# Method\n\nWe propose X.\n"
+    )
+    sections = parse_sections(text)
+    # the whole "refs.bib" section had nothing but a bibtex entry, so once
+    # that block is filtered out the section itself has no blocks left
+    assert [s.heading for s in sections] == ["Method"]
+
+
+def test_strips_bibtex_entries_within_a_section_but_keeps_real_content():
+    text = (
+        "# Related Work\n\n"
+        "We build on prior work.\n\n"
+        "@article{jones2019bar,\n"
+        "  author = {Jones, A.},\n"
+        "  title = {Another Paper}\n"
+        "}\n\n"
+        "This concludes the section.\n"
+    )
+    sections = parse_sections(text)
+    assert len(sections) == 1
+    texts = [b.text for b in sections[0].blocks]
+    assert texts == ["We build on prior work.", "This concludes the section."]
+
+
 def test_strips_cite_ref_label_commands():
     text = "# Method\n\nWe build on prior work \\cite{smith2020} as shown in \\ref{fig:1}.\n"
     sections = parse_sections(text)
