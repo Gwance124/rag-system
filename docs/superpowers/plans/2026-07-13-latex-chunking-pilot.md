@@ -959,8 +959,9 @@ python scripts/inspect_sample.py --pilot-papers pilot_papers.parquet --n 10
 #      assumed Markdown (e.g. raw \section{}/\cite{} everywhere with no # headings),
 #      stop and adjust markdown_parse.py before proceeding.
 python scripts/run_chunking.py --pilot-papers pilot_papers.parquet \
-    --tokenizer-path /path/to/vllm/nv-embed-reason-3b \
+    --tokenizer-path /mnt/nvme2/mlee/tokenizer/models--nvidia--llama-nv-embed-reasoning-3b \
     --chunks-output chunks.parquet --failures-output parse_failures.jsonl
 python scripts/spot_check.py --chunks chunks.parquet \
-    --tokenizer-path /path/to/vllm/nv-embed-reason-3b --n-papers 10
+    --tokenizer-path /mnt/nvme2/mlee/tokenizer/models--nvidia--llama-nv-embed-reasoning-3b --n-papers 1 \
+    --pilot-papers pilot_papers.parquet
 ```
