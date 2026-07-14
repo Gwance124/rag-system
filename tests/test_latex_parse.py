@@ -149,6 +149,85 @@ def test_table_environment_classified():
     assert sections[0].blocks[0].block_type == "table"
 
 
+def test_resolves_input_command_in_logical_document_order():
+    # Real arxiv-latex bundles often list included files in an order that
+    # has nothing to do with \input placement in the main file - e.g. here
+    # 2-methods.tex appears in the bundle BEFORE main.tex, even though
+    # main.tex \inputs it partway through. Section order in the output
+    # must follow main.tex's logical structure, not bundle order.
+    text = (
+        "================================================\n"
+        "FILE: 2-methods.tex\n"
+        "================================================\n"
+        "\\subsection{Similarity metric}\n"
+        "Method content here.\n"
+        "================================================\n"
+        "FILE: main.tex\n"
+        "================================================\n"
+        "\\begin{document}\n"
+        "\\section{Introduction}\n"
+        "Hello world.\n"
+        "\\section{Methods}\n"
+        "\\input{2-methods}\n"
+        "\\end{document}\n"
+    )
+    sections = parse_sections(text)
+    assert [s.path for s in sections] == ["Introduction", "Methods > Similarity metric"]
+    assert sections[0].blocks[0].text == "Hello world."
+    assert sections[1].blocks[0].text == "Method content here."
+    assert not any("\\input" in b.text for s in sections for b in s.blocks)
+
+
+def test_resolves_include_command_same_as_input():
+    text = (
+        "================================================\n"
+        "FILE: results.tex\n"
+        "================================================\n"
+        "Results content.\n"
+        "================================================\n"
+        "FILE: main.tex\n"
+        "================================================\n"
+        "\\begin{document}\n"
+        "\\section{Results}\n"
+        "\\include{results}\n"
+        "\\end{document}\n"
+    )
+    sections = parse_sections(text)
+    assert sections[0].blocks[0].text == "Results content."
+
+
+def test_unresolvable_input_command_is_dropped_not_left_as_junk_text():
+    text = (
+        "\\begin{document}\n"
+        "\\section{Methods}\n"
+        "\\input{missing-file}\n"
+        "\\end{document}\n"
+    )
+    sections = parse_sections(text)
+    # The referenced file isn't in the bundle at all - the whole section
+    # collapses to nothing rather than surfacing a useless "\input{...}" chunk.
+    assert sections == []
+
+
+def test_commented_out_input_command_is_not_resolved():
+    text = (
+        "================================================\n"
+        "FILE: draft.tex\n"
+        "================================================\n"
+        "This should not appear.\n"
+        "================================================\n"
+        "FILE: main.tex\n"
+        "================================================\n"
+        "\\begin{document}\n"
+        "\\section{Method}\n"
+        "We propose X.\n"
+        "% \\input{draft}\n"
+        "\\end{document}\n"
+    )
+    sections = parse_sections(text)
+    assert "This should not appear" not in sections[0].blocks[0].text
+
+
 def test_drops_raw_bibtex_entries_if_present_inline():
     text = (
         "\\begin{document}\n"
