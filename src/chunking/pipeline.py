@@ -13,7 +13,7 @@ _YEAR_RE = re.compile(r'^(\d{2})(\d{2})')
 # circuit breaker against true dataset corruption (e.g. multiple papers'
 # content accidentally concatenated into one row), not a filter on
 # legitimately long papers (which can run several MB, e.g. large appendices).
-MAX_LATEX_CHARS = 50_000_000
+MAX_LATEX_CHARS = 100_000_000
 
 
 def _year_from_yymm_id(yymm_id: str) -> int:

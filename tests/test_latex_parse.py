@@ -246,6 +246,53 @@ def test_drops_content_after_printbibliography_command():
     assert [s.heading for s in sections] == ["Method"]
 
 
+def test_skips_input_of_oversized_file_as_likely_plot_or_table_data(monkeypatch):
+    # Real papers often \input pgfplots/TikZ coordinate-data files for
+    # figures - these can be hundreds of KB to multiple MB of raw numeric
+    # data with zero retrieval value. Above a size threshold, treat as
+    # unresolvable (drop it) rather than inlining megabytes of noise.
+    import chunking.latex_parse as latex_parse
+    monkeypatch.setattr(latex_parse, "_MAX_INCLUDED_FILE_CHARS", 20)
+
+    text = (
+        "================================================\n"
+        "FILE: bigdata.tex\n"
+        "================================================\n"
+        "0123456789 0123456789 0123456789\n"
+        "================================================\n"
+        "FILE: main.tex\n"
+        "================================================\n"
+        "\\begin{document}\n"
+        "\\section{Results}\n"
+        "\\input{bigdata}\n"
+        "\\end{document}\n"
+    )
+    sections = parse_sections(text)
+    assert sections == []
+
+
+def test_oversized_input_file_is_not_appended_as_orphan_fallback_either(monkeypatch):
+    import chunking.latex_parse as latex_parse
+    monkeypatch.setattr(latex_parse, "_MAX_INCLUDED_FILE_CHARS", 20)
+
+    text = (
+        "================================================\n"
+        "FILE: bigdata.tex\n"
+        "================================================\n"
+        "0123456789 0123456789 0123456789\n"
+        "================================================\n"
+        "FILE: main.tex\n"
+        "================================================\n"
+        "\\begin{document}\n"
+        "\\section{Results}\n"
+        "Real content here.\n"
+        "\\input{bigdata}\n"
+        "\\end{document}\n"
+    )
+    sections = parse_sections(text)
+    assert "0123456789" not in sections[0].blocks[0].text
+
+
 def test_drops_raw_bibtex_entries_if_present_inline():
     text = (
         "\\begin{document}\n"

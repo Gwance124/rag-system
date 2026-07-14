@@ -17,6 +17,13 @@ _END_DOCUMENT_RE = re.compile(r'\\end\{document\}.*', re.DOTALL)
 _COMMENT_RE = re.compile(r'(?<!\\)%.*')
 _INCLUDE_RE = re.compile(r'\\(?:input|include)\{(?P<name>[^}]*)\}')
 
+# \input-ed pgfplots/TikZ coordinate-data files for figures can run to
+# hundreds of KB or multiple MB of raw numeric data with zero retrieval
+# value - a whole paper's own prose body is typically well under this. Above
+# this size, treat the include as unresolvable (drop it) rather than
+# inlining megabytes of noise. Crude size-based proxy, not content-aware.
+_MAX_INCLUDED_FILE_CHARS = 50_000
+
 _SECTION_RE = re.compile(r'\\(?P<subs>(?:sub){0,2})section\*?\{(?P<title>[^}]*)\}')
 
 _CITE_RE = re.compile(r'\\(?:[Cc]ite\w*|ref|eqref|autoref|label)\{[^}]*\}')
@@ -93,6 +100,12 @@ def _resolve_includes(text: str, tex_files: dict[str, str], active: set[str], us
         if key is None or key in active:
             # Unresolvable or a cycle - drop the command rather than leaving
             # useless raw "\input{...}" text as chunk content.
+            return ""
+        if len(tex_files[key]) > _MAX_INCLUDED_FILE_CHARS:
+            # Likely generated plot/table data, not prose - drop it, and
+            # mark it used so the orphan-fallback pass doesn't append it
+            # either (this is a deliberate exclusion, not a missed file).
+            used.add(key)
             return ""
         active.add(key)
         used.add(key)
