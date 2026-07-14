@@ -21,7 +21,7 @@ def main() -> None:
     parser.add_argument("--dataset", default="scifact")
     parser.add_argument("--split", default="test")
     parser.add_argument("--long-documents", action="store_true")
-    parser.add_argument("--cache-dir")
+    parser.add_argument("--cache-dir", help="Hugging Face root containing hub/ and datasets/")
     parser.add_argument("--documents", help="JSONL documents for --benchmark jsonl")
     parser.add_argument("--qdrant-url", required=True)
     parser.add_argument("--collection", required=True)

@@ -24,14 +24,17 @@ def main() -> None:
     parser.add_argument("--dataset", default="scifact", help="MTEB/BEIR dataset name, e.g. scifact or trec-covid")
     parser.add_argument("--split", default="test")
     parser.add_argument("--long-documents", action="store_true")
-    parser.add_argument("--cache-dir", help="Local Hugging Face cache; missing files fail instead of downloading")
+    parser.add_argument(
+        "--cache-dir",
+        help="Hugging Face root containing hub/ and datasets/; missing files fail instead of downloading",
+    )
     parser.add_argument("--documents")
     parser.add_argument("--queries")
     parser.add_argument("--qrels")
     parser.add_argument("--top-n", type=int, default=100)
     parser.add_argument("--top-k", type=int, default=100)
     parser.add_argument("--mode", choices=("sparse", "dense", "hybrid"), default="sparse")
-    parser.add_argument("--embedding-url", default="http://solab-g3:8000/v1")
+    parser.add_argument("--embedding-url", default="http://192.168.3.4:8000/v1")
     parser.add_argument("--embedding-model", default="nvidia/llama-nv-embed-reasoning-3b")
     parser.add_argument("--qdrant-url", help="Qdrant REST base URL on the benchmark host")
     parser.add_argument("--collection", help="Qdrant collection for the selected corpus")
