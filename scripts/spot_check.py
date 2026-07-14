@@ -1,7 +1,13 @@
 import argparse
+import json
 import pandas as pd
 from chunking.tokenizer import HFTokenizer
-from chunking.stats import estimate_tokens_from_chars, summarize_tokens, paper_cleaned_token_count
+from chunking.stats import (
+    estimate_tokens_from_chars,
+    summarize_tokens,
+    paper_cleaned_token_count,
+    build_token_stats_report,
+)
 
 
 def main():
@@ -20,6 +26,11 @@ def main():
         "--plot-output", default="token_stats.png",
         help="Where to write the raw-vs-cleaned token stats bar chart (requires --pilot-papers)",
     )
+    parser.add_argument(
+        "--stats-output", default="token_stats.json",
+        help="Where to write per-paper raw/cleaned token counts and summary stats as JSON "
+        "(requires --pilot-papers), so this data can be reviewed without rerunning the script",
+    )
     args = parser.parse_args()
 
     df = pd.read_parquet(args.chunks)
@@ -36,8 +47,10 @@ def main():
     chunk_token_counts = []
     raw_token_estimates = []
     cleaned_token_counts = []
+    sampled_paper_ids = []
 
     for paper_id in sample_ids:
+        sampled_paper_ids.append(paper_id)
         paper_chunks = df[df["id"] == paper_id].sort_values("chunk_index")
         print("=" * 80)
         print(f"paper: {paper_id}  ({len(paper_chunks)} chunks)")
@@ -81,6 +94,16 @@ def main():
 
         plot_raw_vs_cleaned(raw_stats, cleaned_stats, args.plot_output)
         print(f"\nWrote token stats chart to {args.plot_output}")
+
+        report = build_token_stats_report(
+            paper_ids=sampled_paper_ids,
+            raw_token_estimates=raw_token_estimates,
+            cleaned_token_counts=cleaned_token_counts,
+            chunk_token_counts=chunk_token_counts,
+        )
+        with open(args.stats_output, "w") as f:
+            json.dump(report, f, indent=2)
+        print(f"Wrote token stats data to {args.stats_output}")
 
 
 def plot_raw_vs_cleaned(raw_stats: dict, cleaned_stats: dict, output_path: str):
