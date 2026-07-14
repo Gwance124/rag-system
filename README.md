@@ -88,6 +88,60 @@ BRIGHT remains available through `--benchmark bright`; its configs are
 cache-only and fail on a cache miss. Dense runs still use the configured vLLM
 endpoint (`solab-g3:8000`) for embeddings.
 
+### LitSearch paper-aligned results
+
+LitSearch results now include `recall@5` and `recall@20` plus a
+`litsearch_paper_comparison` section. That section splits the 597 queries by
+`query_set` (`inline-citation` or `author-written`) and `specificity` (`broad`
+or `specific`), then reports the same cutoffs as the paper: broad `R@20`, and
+specific `R@5` and `R@20`. It also includes the paper's BM25 reference values
+and our delta from them. Values are fractions, so `0.50` means 50%.
+
+Save each run so the model and mode recorded in its `config` can be compared:
+
+```bash
+mkdir -p results
+
+python scripts/run_public_bench.py \
+  --benchmark litsearch \
+  --cache-dir /mnt/nvme2/labuser/.cache/huggingface \
+  --mode sparse > results/litsearch-bm25.json
+
+python scripts/build_dense_index.py \
+  --benchmark litsearch \
+  --cache-dir /mnt/nvme2/labuser/.cache/huggingface \
+  --embedding-model nvidia/llama-nv-embed-reasoning-3b \
+  --qdrant-url http://localhost:6333 \
+  --collection litsearch-reason
+
+python scripts/run_public_bench.py \
+  --benchmark litsearch \
+  --cache-dir /mnt/nvme2/labuser/.cache/huggingface \
+  --mode dense \
+  --embedding-model nvidia/llama-nv-embed-reasoning-3b \
+  --qdrant-url http://localhost:6333 \
+  --collection litsearch-reason > results/litsearch-reason.json
+```
+
+For a general-purpose NVIDIA comparison, serve `nvidia/NV-Embed-v2` on a
+separate vLLM endpoint (or restart the existing endpoint), then repeat the
+index and run commands with `--embedding-model nvidia/NV-Embed-v2` and a
+different collection such as `litsearch-nv-embed-v2`. Use the model's query
+instruction and no passage prefix:
+
+```bash
+--embedding-model nvidia/NV-Embed-v2 \
+--query-prefix $'Instruct: Given a question, retrieve passages that answer the question\nQuery: ' \
+--passage-prefix ''
+```
+
+The model flag tells the OpenAI-compatible endpoint which model to use; it does
+not load a model itself. Use separate collections because embedding dimensions
+and vector spaces may differ. The paper's BM25 implementation uses
+`rank-bm25`; this project keeps a small dependency-free implementation, so the
+paper comparison is a reference check rather than an exact implementation
+match.
+
 ### Windows cache staging
 
 On the Windows laptop, use PowerShell and copy the complete cache root:
@@ -124,3 +178,13 @@ and `/mnt/nvme2/labuser/.cache/huggingface/hub`. The embedding model cache is
 separate: vLLM is already serving it from `solab-g3:8000`, so the benchmark
 runner on `solab-p7` sends embedding requests there and does not need the model
 copied locally.
+
+If an older staging run put `princeton-nlp___lit_search/` directly under
+`hub/`, move that processed dataset cache into `datasets/` before running
+offline:
+
+```bash
+mkdir -p /mnt/nvme2/labuser/.cache/huggingface/datasets
+mv /mnt/nvme2/labuser/.cache/huggingface/hub/princeton-nlp___lit_search \
+   /mnt/nvme2/labuser/.cache/huggingface/datasets/
+```

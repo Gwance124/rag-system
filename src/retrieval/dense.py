@@ -16,10 +16,14 @@ class VllmEmbeddingClient:
         self,
         base_url: str = "http://solab-g3:8000/v1",
         model: str = "nvidia/llama-nv-embed-reasoning-3b",
+        query_prefix: str = "query: ",
+        passage_prefix: str = "passage: ",
         timeout: float = 120.0,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.model = model
+        self.query_prefix = query_prefix
+        self.passage_prefix = passage_prefix
         self.timeout = timeout
 
     def embed(self, texts: Sequence[str]) -> list[list[float]]:
@@ -59,7 +63,7 @@ class QdrantIndex:
         if not documents:
             return
         first_batch = documents[:batch_size]
-        vectors = self.embedder.embed([f"passage: {document.text}" for document in first_batch])
+        vectors = self.embedder.embed([self.embedder.passage_prefix + document.text for document in first_batch])
         try:
             self._request(
                 "PUT",
@@ -72,7 +76,7 @@ class QdrantIndex:
         for start in range(0, len(documents), batch_size):
             batch = documents[start : start + batch_size]
             batch_vectors = vectors if start == 0 else self.embedder.embed(
-                [f"passage: {document.text}" for document in batch]
+                [self.embedder.passage_prefix + document.text for document in batch]
             )
             self._request(
                 "PUT",
@@ -93,7 +97,7 @@ class QdrantIndex:
             )
 
     def embed_query(self, query: str) -> list[float]:
-        return self.embedder.embed([f"query: {query}"])[0]
+        return self.embedder.embed([self.embedder.query_prefix + query])[0]
 
     def search_vector(self, vector: Sequence[float], top_n: int = 100) -> list[SearchHit]:
         response = self._request(

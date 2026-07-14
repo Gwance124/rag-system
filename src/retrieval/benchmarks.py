@@ -14,6 +14,7 @@ class Benchmark:
     queries: dict[str, str]
     qrels: dict[str, set[str]]
     excluded_ids: dict[str, set[str]]
+    query_metadata: dict[str, dict] | None = None
 
 
 def _load_hf_split(
@@ -124,11 +125,23 @@ def load_litsearch_hf(
     ]
     queries = {}
     qrels: dict[str, set[str]] = {}
+    query_metadata = {}
     for index, row in enumerate(query_table, 1):
         query_id = f"q{index}"
         queries[query_id] = row["query"]
         qrels[query_id] = {document_id(doc_id) for doc_id in row["corpusids"]}
-    return Benchmark(documents, queries, qrels, {query_id: set() for query_id in queries})
+        query_metadata[query_id] = {
+            key: row[key]
+            for key in ("query_set", "specificity", "quality")
+            if key in row
+        }
+    return Benchmark(
+        documents,
+        queries,
+        qrels,
+        {query_id: set() for query_id in queries},
+        query_metadata,
+    )
 
 
 def load_mteb_hf(

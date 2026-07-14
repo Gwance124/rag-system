@@ -10,11 +10,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from retrieval.benchmarks import load_bright_hf, load_jsonl_benchmark, load_litsearch_hf, load_mteb_hf
 from retrieval.dense import QdrantIndex, VllmEmbeddingClient
-from retrieval.metrics import evaluate_run
+from retrieval.metrics import evaluate_litsearch_comparison, evaluate_run
 from retrieval.pipeline import HybridRetriever
 from retrieval.sparse import BM25Index
 from retrieval.types import RetrievalConfig
-
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run the first retrieval baseline on BRIGHT or JSONL data.")
@@ -36,6 +35,8 @@ def main() -> None:
     parser.add_argument("--mode", choices=("sparse", "dense", "hybrid"), default="sparse")
     parser.add_argument("--embedding-url", default="http://192.168.3.4:8000/v1")
     parser.add_argument("--embedding-model", default="nvidia/llama-nv-embed-reasoning-3b")
+    parser.add_argument("--query-prefix", default="query: ")
+    parser.add_argument("--passage-prefix", default="passage: ")
     parser.add_argument("--qdrant-url", help="Qdrant REST base URL on the benchmark host")
     parser.add_argument("--collection", help="Qdrant collection for the selected corpus")
     args = parser.parse_args()
@@ -64,7 +65,12 @@ def main() -> None:
             parser.error("dense and hybrid modes require --qdrant-url and --collection")
         dense_index = QdrantIndex(
             args.collection,
-            VllmEmbeddingClient(args.embedding_url, args.embedding_model),
+            VllmEmbeddingClient(
+                args.embedding_url,
+                args.embedding_model,
+                args.query_prefix,
+                args.passage_prefix,
+            ),
             args.qdrant_url,
         )
     retriever = HybridRetriever(
@@ -85,7 +91,22 @@ def main() -> None:
         run[query_id] = [hit.doc_id for hit in result.hits]
         timings.append(result.timings_ms)
 
-    print(json.dumps({"metrics": evaluate_run(run, benchmark.qrels), "queries": len(run), "timings_ms": timings}, indent=2))
+    output = {
+        "config": {
+            "benchmark": args.benchmark,
+            "mode": args.mode,
+            "embedding_model": args.embedding_model if args.mode in ("dense", "hybrid") else None,
+            "query_prefix": args.query_prefix if args.mode in ("dense", "hybrid") else None,
+            "passage_prefix": args.passage_prefix if args.mode in ("dense", "hybrid") else None,
+            "documents": "title+abstract" if args.benchmark == "litsearch" else None,
+        },
+        "metrics": evaluate_run(run, benchmark.qrels, ks=(5, 10, 20, 50, 100)),
+        "queries": len(run),
+        "timings_ms": timings,
+    }
+    if args.benchmark == "litsearch":
+        output["litsearch_paper_comparison"] = evaluate_litsearch_comparison(benchmark, run)
+    print(json.dumps(output, indent=2))
 
 
 if __name__ == "__main__":

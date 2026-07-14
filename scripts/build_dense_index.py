@@ -27,6 +27,8 @@ def main() -> None:
     parser.add_argument("--collection", required=True)
     parser.add_argument("--embedding-url", default="http://solab-g3:8000/v1")
     parser.add_argument("--embedding-model", default="nvidia/llama-nv-embed-reasoning-3b")
+    parser.add_argument("--query-prefix", default="query: ")
+    parser.add_argument("--passage-prefix", default="passage: ")
     parser.add_argument("--batch-size", type=int, default=32)
     args = parser.parse_args()
 
@@ -61,7 +63,12 @@ def main() -> None:
 
     index = QdrantIndex(
         args.collection,
-        VllmEmbeddingClient(args.embedding_url, args.embedding_model),
+        VllmEmbeddingClient(
+            args.embedding_url,
+            args.embedding_model,
+            args.query_prefix,
+            args.passage_prefix,
+        ),
         args.qdrant_url,
     )
     index.create(documents, batch_size=args.batch_size)

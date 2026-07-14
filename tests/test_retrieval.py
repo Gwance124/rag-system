@@ -4,8 +4,9 @@ import sys
 from types import SimpleNamespace
 
 from retrieval.benchmarks import load_bright_hf, load_jsonl_benchmark, load_litsearch_hf, load_mteb_hf
+from retrieval.dense import QdrantIndex
 from retrieval.fusion import aggregate_to_papers, rrf_fuse
-from retrieval.metrics import evaluate_run, ndcg_at_k, recall_at_k, reciprocal_rank
+from retrieval.metrics import evaluate_litsearch_comparison, evaluate_run, ndcg_at_k, recall_at_k, reciprocal_rank
 from retrieval.pipeline import HybridRetriever
 from retrieval.sparse import BM25Index
 from retrieval.types import Document, RetrievalConfig, SearchHit
@@ -74,6 +75,22 @@ def test_hybrid_retriever_records_rewrite_embed_search_and_fuse_timings():
     assert {"rewrite_ms", "embed_ms", "dense_search_ms", "sparse_search_ms", "fuse_ms"} <= result.timings_ms.keys()
 
 
+def test_dense_index_applies_model_specific_query_prefix():
+    class Embedder:
+        query_prefix = "Instruct: retrieve papers\nQuery: "
+        passage_prefix = ""
+        timeout = 1
+
+        def embed(self, texts):
+            self.texts = texts
+            return [[1.0]]
+
+    embedder = Embedder()
+    index = QdrantIndex("test", embedder, "http://localhost:6333")
+    assert index.embed_query("find papers") == [1.0]
+    assert embedder.texts == ["Instruct: retrieve papers\nQuery: find papers"]
+
+
 def test_jsonl_benchmark_keeps_exclusions_and_qrels(tmp_path):
     documents = tmp_path / "documents.jsonl"
     queries = tmp_path / "queries.jsonl"
@@ -132,7 +149,7 @@ def test_litsearch_loader_reads_hf_schema(monkeypatch, tmp_path):
     def load_dataset(dataset_id, config, **kwargs):
         assert dataset_id == "princeton-nlp/LitSearch"
         if config == "query":
-            return [{"query": "find papers", "corpusids": [7]}]
+            return [{"query": "find papers", "corpusids": [7], "query_set": "inline-citation", "specificity": 1}]
         return [{"corpusid": 7, "title": "Title", "abstract": "Abstract"}]
 
     monkeypatch.setitem(sys.modules, "datasets", SimpleNamespace(
@@ -143,7 +160,22 @@ def test_litsearch_loader_reads_hf_schema(monkeypatch, tmp_path):
     benchmark = load_litsearch_hf(cache_dir=tmp_path)
     assert benchmark.queries == {"q1": "find papers"}
     assert benchmark.qrels == {"q1": {"d7"}}
+    assert benchmark.query_metadata == {"q1": {"query_set": "inline-citation", "specificity": 1}}
     assert benchmark.documents[0].text == "Title Abstract"
+
+
+def test_litsearch_comparison_reports_paper_cutoffs():
+    benchmark = SimpleNamespace(
+        qrels={"q1": {"d1"}, "q2": {"d2"}},
+        query_metadata={
+            "q1": {"query_set": "inline-citation", "specificity": 0},
+            "q2": {"query_set": "author-written", "specificity": 1},
+        },
+    )
+    report = evaluate_litsearch_comparison(benchmark, {"q1": ["d1"], "q2": ["d2"]})
+    assert report["ours"]["inline-citation"]["broad"]["recall@20"] == 1.0
+    assert report["ours"]["author-written"]["specific"]["recall@5"] == 1.0
+    assert "recall@20" in report["paper_bm25"]["inline-citation"]["broad"]
 
 
 def test_mteb_loader_reads_beir_schema(monkeypatch, tmp_path):

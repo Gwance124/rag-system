@@ -41,10 +41,10 @@ Sequencing principle (user decision): **validate the pipeline on public benchmar
 
 The first slice is now in `src/retrieval/`: dependency-free BM25, weighted RRF,
 chunk-to-paper aggregation, shared paper-level metrics, cache-only HF loaders
-for LitSearch and MTEB/BEIR, a vLLM embeddings client, and a small Qdrant REST
-adapter. `scripts/run_public_bench.py` runs sparse, dense, or hybrid retrieval
-against LitSearch, SciFact, TREC-COVID, BRIGHT, or a generic local JSONL
-benchmark.
+for LitSearch and MTEB/BEIR, LitSearch paper-aligned R@5/R@20 subgroup
+reporting, a vLLM embeddings client, and a small Qdrant REST adapter.
+`scripts/run_public_bench.py` runs sparse, dense, or hybrid retrieval against
+LitSearch, SciFact, TREC-COVID, BRIGHT, or a generic local JSONL benchmark.
 
 ## Deliverables (in order)
 
