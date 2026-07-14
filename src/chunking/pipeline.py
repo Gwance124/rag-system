@@ -89,6 +89,16 @@ def _worker_chunk_row(row):
     return _chunk_one_row(row, _worker_tokenizer, _worker_max_tokens)
 
 
+def _iter_rows_as_dicts(df: pd.DataFrame):
+    """Lazily yield each row as a plain dict, column-name-keyed. Much cheaper
+    per row than iterrows() (which builds a full pandas Series, copying data
+    like the multi-KB latex string) and, being a generator, never
+    materializes the whole DataFrame as a list up front."""
+    columns = list(df.columns)
+    for values in df.itertuples(index=False, name=None):
+        yield dict(zip(columns, values))
+
+
 def run_chunking_parallel(
     pilot_df: pd.DataFrame,
     tokenizer_path: str,
@@ -102,12 +112,12 @@ def run_chunking_parallel(
     process boundary."""
     records = []
     failures = []
-    rows = [row for _, row in pilot_df.iterrows()]
-    total = len(rows)
+    total = len(pilot_df)
 
     with mp.get_context("spawn").Pool(
         processes=workers, initializer=_init_worker, initargs=(tokenizer_path, max_tokens)
     ) as pool:
+        rows = _iter_rows_as_dicts(pilot_df)
         for i, (row_records, failure) in enumerate(pool.imap(_worker_chunk_row, rows, chunksize=16), 1):
             records.extend(row_records)
             if failure is not None:

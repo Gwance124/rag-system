@@ -2,7 +2,25 @@ import json
 import pandas as pd
 from chunking.tokenizer import FakeTokenizer
 from chunking.types import ChunkRecord
-from chunking.pipeline import filter_pilot_papers, run_chunking, write_chunks, write_failures
+from chunking.pipeline import filter_pilot_papers, run_chunking, write_chunks, write_failures, _iter_rows_as_dicts
+
+
+def test_iter_rows_as_dicts_yields_a_lazy_generator_of_plain_dicts():
+    df = pd.DataFrame([
+        {"id": "1", "title": "A", "abstract": "a", "categories": "cs.IR",
+         "yymm_id": "2103", "latex": "x"},
+        {"id": "2", "title": "B", "abstract": "b", "categories": "cs.IR",
+         "yymm_id": "2103", "latex": "y"},
+    ])
+    rows = _iter_rows_as_dicts(df)
+    assert not isinstance(rows, list)  # must stay lazy, not materialize eagerly
+    rows = list(rows)
+    assert rows == [
+        {"id": "1", "title": "A", "abstract": "a", "categories": "cs.IR",
+         "yymm_id": "2103", "latex": "x"},
+        {"id": "2", "title": "B", "abstract": "b", "categories": "cs.IR",
+         "yymm_id": "2103", "latex": "y"},
+    ]
 
 
 def test_filters_by_category_and_year():
