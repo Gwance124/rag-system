@@ -18,7 +18,17 @@ def test_single_small_section_produces_one_chunk():
     assert chunks[0].id == "1234.5678"
     assert chunks[0].section_path == "Intro"
     assert chunks[0].text_raw == "one two three"
-    assert chunks[0].text_with_context.startswith("T\nA\nIntro\n\n")
+    assert chunks[0].text_with_context == "T\nIntro\nChunk 0\n\none two three"
+
+
+def test_context_prefix_excludes_abstract():
+    section = Section(
+        heading="Intro", level=1, path="Intro",
+        blocks=[Block("paragraph", "one two three")],
+    )
+    paper = ParsedPaper(id="1234.5678", title="T", abstract="ABSTRACT_CONTENT", sections=[section])
+    chunks = chunk_paper(paper, FakeTokenizer(), max_tokens=100)
+    assert "ABSTRACT_CONTENT" not in chunks[0].text_with_context
 
 
 def test_splits_into_multiple_chunks_when_over_cap():

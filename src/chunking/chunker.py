@@ -71,8 +71,12 @@ def chunk_paper(paper: ParsedPaper, tokenizer: Tokenizer, max_tokens: int = 512)
     chunk_index = 0
 
     for section in paper.sections:
-        prefix = f"{paper.title}\n{paper.abstract}\n{section.path}\n\n"
-        prefix_tokens = tokenizer.count_tokens(prefix)
+        # Header (title + section path) is fixed per section; the chunk number
+        # is only known at flush time. It's excluded from prefix_tokens/budget
+        # tracking since it's a couple tokens at most - negligible now that the
+        # (often ~400-token) abstract is no longer repeated on every chunk.
+        header = f"{paper.title}\n{section.path}\n"
+        prefix_tokens = tokenizer.count_tokens(header)
 
         current_blocks: list[Block] = []
         current_tokens = prefix_tokens
@@ -82,6 +86,7 @@ def chunk_paper(paper: ParsedPaper, tokenizer: Tokenizer, max_tokens: int = 512)
             if not current_blocks:
                 return
             body = "\n\n".join(b.text for b in current_blocks)
+            prefix = f"{header}Chunk {chunk_index}\n\n"
             records.append(
                 ChunkRecord(
                     id=paper.id,
