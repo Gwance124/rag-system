@@ -18,6 +18,13 @@ LITSEARCH_PAPER_BM25 = {
     },
 }
 
+LITSEARCH_PAPER_NDCG10 = {
+    "GTR-T5-large": {"broad": 0.233, "specific": 0.304},
+    "Instructor-XL": {"broad": 0.328, "specific": 0.412},
+    "E5-large-v2": {"broad": 0.271, "specific": 0.453},
+    "GritLM-7B": {"broad": 0.441, "specific": 0.603},
+}
+
 
 def recall_at_k(ranking: Sequence[str], relevant: set[str], k: int) -> float:
     return len(set(ranking[:k]) & relevant) / len(relevant) if relevant else 0.0
@@ -68,7 +75,7 @@ def evaluate_litsearch_comparison(benchmark, run):
         query_set = str(metadata.get("query_set", "unknown")).lower().replace("_", "-")
         if query_set.startswith("inline"):
             query_set = "inline-citation"
-        elif query_set.startswith("author"):
+        elif query_set.startswith("author") or query_set.startswith("manual-"):
             query_set = "author-written"
         specificity = "broad" if int(metadata.get("specificity", 0)) == 0 else "specific"
         groups.setdefault((query_set, specificity), []).append(query_id)
@@ -98,4 +105,9 @@ def evaluate_litsearch_comparison(benchmark, run):
             matching = {key: metrics[key] - value for key, value in reference.items() if key in metrics}
             if matching:
                 deltas.setdefault(query_set, {})[specificity] = matching
-    return {"paper_bm25": LITSEARCH_PAPER_BM25, "ours": ours, "delta_vs_paper_bm25": deltas}
+    return {
+        "paper_bm25": LITSEARCH_PAPER_BM25,
+        "paper_ndcg@10": LITSEARCH_PAPER_NDCG10,
+        "ours": ours,
+        "delta_vs_paper_bm25": deltas,
+    }

@@ -95,7 +95,9 @@ LitSearch results now include `recall@5` and `recall@20` plus a
 `query_set` (`inline-citation` or `author-written`) and `specificity` (`broad`
 or `specific`), then reports the same cutoffs as the paper: broad `R@20`, and
 specific `R@5` and `R@20`. It also includes the paper's BM25 reference values
-and our delta from them. Values are fractions, so `0.50` means 50%.
+and our delta from them. It also includes the paper's Table 8 `nDCG@10`
+references for GTR-T5-large, Instructor-XL, E5-large-v2, and GritLM-7B.
+Values are fractions, so `0.50` means 50%.
 
 Save each run so the model and mode recorded in its `config` can be compared:
 

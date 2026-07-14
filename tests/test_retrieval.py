@@ -169,13 +169,14 @@ def test_litsearch_comparison_reports_paper_cutoffs():
         qrels={"q1": {"d1"}, "q2": {"d2"}},
         query_metadata={
             "q1": {"query_set": "inline-citation", "specificity": 0},
-            "q2": {"query_set": "author-written", "specificity": 1},
+            "q2": {"query_set": "manual-acl", "specificity": 1},
         },
     )
     report = evaluate_litsearch_comparison(benchmark, {"q1": ["d1"], "q2": ["d2"]})
     assert report["ours"]["inline-citation"]["broad"]["recall@20"] == 1.0
     assert report["ours"]["author-written"]["specific"]["recall@5"] == 1.0
     assert "recall@20" in report["paper_bm25"]["inline-citation"]["broad"]
+    assert report["paper_ndcg@10"]["E5-large-v2"]["specific"] == 0.453
 
 
 def test_mteb_loader_reads_beir_schema(monkeypatch, tmp_path):

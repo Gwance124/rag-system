@@ -25,7 +25,7 @@ def main() -> None:
     parser.add_argument("--documents", help="JSONL documents for --benchmark jsonl")
     parser.add_argument("--qdrant-url", required=True)
     parser.add_argument("--collection", required=True)
-    parser.add_argument("--embedding-url", default="http://solab-g3:8000/v1")
+    parser.add_argument("--embedding-url", default="http://192.168.3.4:8000/v1")
     parser.add_argument("--embedding-model", default="nvidia/llama-nv-embed-reasoning-3b")
     parser.add_argument("--query-prefix", default="query: ")
     parser.add_argument("--passage-prefix", default="passage: ")
