@@ -59,9 +59,9 @@ def test_run_chunking_produces_records_and_skips_failures():
 
 
 def test_run_chunking_skips_only_truly_pathological_latex_field():
-    # ~55M chars - well past MAX_LATEX_CHARS, representative of corrupted/
+    # ~110M chars - well past MAX_LATEX_CHARS, representative of corrupted/
     # concatenated dataset rows rather than a real single paper.
-    huge_latex = "# Intro\n\n" + ("word " * 11_000_000)
+    huge_latex = "# Intro\n\n" + ("word " * 22_000_000)
     df = pd.DataFrame([
         {"id": "huge.1", "title": "T", "abstract": "A", "latex": huge_latex},
     ])
