@@ -2,7 +2,7 @@ import json
 import re
 import pandas as pd
 from chunking.types import ParsedPaper
-from chunking.markdown_parse import parse_sections
+from chunking.latex_parse import parse_sections
 from chunking.chunker import chunk_paper
 
 _YEAR_RE = re.compile(r'^(\d{2})(\d{2})')

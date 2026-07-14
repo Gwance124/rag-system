@@ -30,7 +30,7 @@ def test_output_has_only_expected_columns():
 def test_run_chunking_produces_records_and_skips_failures():
     df = pd.DataFrame([
         {"id": "good.1", "title": "T", "abstract": "A",
-         "latex": "# Intro\n\nSome text here.\n"},
+         "latex": "\\begin{document}\n\\section{Intro}\nSome text here.\n\\end{document}\n"},
         {"id": "bad.1", "title": "T2", "abstract": "A2", "latex": None},
     ])
     records, failures = run_chunking(df, FakeTokenizer(), max_tokens=100)
@@ -59,7 +59,12 @@ def test_run_chunking_does_not_skip_a_legitimately_long_paper():
     # well above the old 2M-char threshold but nowhere near true corruption.
     # It should be chunked normally, not rejected for its size alone.
     section_body = "One sentence here. " * 20_000  # ~400k chars of real prose
-    long_latex = f"# Intro\n\n{section_body}\n\n## Appendix\n\n{section_body}\n"
+    long_latex = (
+        f"\\begin{{document}}\n"
+        f"\\section{{Intro}}\n{section_body}\n"
+        f"\\subsection{{Appendix}}\n{section_body}\n"
+        f"\\end{{document}}\n"
+    )
     df = pd.DataFrame([
         {"id": "long.1", "title": "T", "abstract": "A", "latex": long_latex},
     ])
