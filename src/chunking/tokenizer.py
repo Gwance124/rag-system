@@ -13,13 +13,19 @@ class FakeTokenizer:
 
 
 class HFTokenizer:
-    """Wraps a real HF tokenizer loaded from a local model directory (e.g. vLLM's
-    model path). Never touches the network."""
+    """Wraps a real HF tokenizer loaded directly from a local tokenizer.json
+    file (e.g. vLLM's model dir). Deliberately avoids AutoTokenizer/AutoConfig,
+    which for some repos (e.g. ones with custom trust_remote_code model
+    classes) executes unrelated model code that can require torch just to
+    read config metadata - tokenizer.json alone is self-contained and needs
+    none of that. Never touches the network."""
 
     def __init__(self, model_path: str):
-        from transformers import AutoTokenizer
+        import os
+        from transformers import PreTrainedTokenizerFast
 
-        self._tok = AutoTokenizer.from_pretrained(model_path, local_files_only=True)
+        tokenizer_file = os.path.join(model_path, "tokenizer.json")
+        self._tok = PreTrainedTokenizerFast(tokenizer_file=tokenizer_file)
 
     def count_tokens(self, text: str) -> int:
         return len(self._tok.encode(text))
