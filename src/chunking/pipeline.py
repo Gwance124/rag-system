@@ -7,6 +7,11 @@ from chunking.chunker import chunk_paper
 
 _YEAR_RE = re.compile(r'^(\d{2})(\d{2})')
 
+# Well above any real paper (avg ~39k tokens / ~150k chars) but well below
+# the multi-million-token anomalies seen in a handful of dataset rows -
+# skip those rather than let a degenerate row stall the whole run.
+MAX_LATEX_CHARS = 2_000_000
+
 
 def _year_from_yymm_id(yymm_id: str) -> int:
     match = _YEAR_RE.match(yymm_id)
@@ -36,6 +41,13 @@ def run_chunking(pilot_df: pd.DataFrame, tokenizer, max_tokens: int = 512):
     records = []
     failures = []
     for _, row in pilot_df.iterrows():
+        latex_text = row["latex"]
+        if isinstance(latex_text, str) and len(latex_text) > MAX_LATEX_CHARS:
+            failures.append({
+                "id": row["id"],
+                "error": f"latex field too large ({len(latex_text)} chars > {MAX_LATEX_CHARS}), skipped",
+            })
+            continue
         try:
             paper = parse_paper_row(row)
             records.extend(chunk_paper(paper, tokenizer, max_tokens=max_tokens))

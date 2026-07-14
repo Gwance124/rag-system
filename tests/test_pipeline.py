@@ -40,6 +40,18 @@ def test_run_chunking_produces_records_and_skips_failures():
     assert failures[0]["id"] == "bad.1"
 
 
+def test_run_chunking_skips_absurdly_large_latex_field():
+    huge_latex = "# Intro\n\n" + ("word " * 1_000_000)  # far exceeds MAX_LATEX_CHARS
+    df = pd.DataFrame([
+        {"id": "huge.1", "title": "T", "abstract": "A", "latex": huge_latex},
+    ])
+    records, failures = run_chunking(df, FakeTokenizer(), max_tokens=100)
+    assert records == []
+    assert len(failures) == 1
+    assert failures[0]["id"] == "huge.1"
+    assert "too large" in failures[0]["error"]
+
+
 def test_write_chunks_and_failures_roundtrip(tmp_path):
     records = [
         ChunkRecord(
