@@ -225,8 +225,10 @@ all of them with:
 ```
 
 The script builds one Qdrant collection per dataset for the configured
-embedding model, then writes JSON files under `results/public/`. To reuse
-collections on later runs:
+embedding model. Model-independent BM25 files go under
+`results/public/sparse/`; dense and hybrid files go under a model directory
+such as `results/public/llama-nv-embed-reasoning-3b/`. To reuse collections on
+later runs:
 
 ```bash
 BUILD_INDEXES=0 ./scripts/run_all_benchmarks.sh
@@ -250,8 +252,22 @@ to overwrite them without rebuilding collections with:
 FORCE_RERUN=1 ./scripts/run_all_benchmarks.sh
 ```
 
+`MODEL_TAG` overrides the model result-directory name when comparing another
+configuration of the same checkpoint.
+
+Move results created by an older version of the script with:
+
+```bash
+mkdir -p results/public/sparse \
+  results/public/llama-nv-embed-reasoning-3b
+mv results/public/*-sparse.json results/public/sparse/
+mv results/public/*-dense.json results/public/*-hybrid.json \
+  results/public/llama-nv-embed-reasoning-3b/
+```
+
 The main overrides are `CACHE_DIR`, `RESULTS_DIR`, `QDRANT_URL`,
-`EMBEDDING_URL`, `EMBEDDING_MODEL`, `EMBEDDING_API_MODEL`, and `BATCH_SIZE`.
+`EMBEDDING_URL`, `EMBEDDING_MODEL`, `EMBEDDING_API_MODEL`, `MODEL_TAG`, and
+`BATCH_SIZE`.
 This suite does not apply query alignment or reranking.
 
 If an older staging run put `princeton-nlp___lit_search/` directly under

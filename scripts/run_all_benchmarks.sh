@@ -8,7 +8,8 @@ QDRANT_URL="${QDRANT_URL:-http://localhost:6333}"
 EMBEDDING_URL="${EMBEDDING_URL:-http://192.168.3.4:8000/v1}"
 EMBEDDING_MODEL="${EMBEDDING_MODEL:-nvidia/llama-nv-embed-reasoning-3b}"
 EMBEDDING_API_MODEL="${EMBEDDING_API_MODEL:-/model}"
-COLLECTION_TAG="${COLLECTION_TAG:-${EMBEDDING_MODEL##*/}}"
+MODEL_TAG="${MODEL_TAG:-${EMBEDDING_MODEL##*/}}"
+COLLECTION_TAG="${COLLECTION_TAG:-$MODEL_TAG}"
 LITSEARCH_COLLECTION="${LITSEARCH_COLLECTION:-}"
 BATCH_SIZE="${BATCH_SIZE:-64}"
 BUILD_INDEXES="${BUILD_INDEXES:-1}"
@@ -24,7 +25,9 @@ benchmarks=(
   "mteb:trec-covid"
 )
 
-mkdir -p "$RESULTS_DIR"
+SPARSE_RESULTS_DIR="$RESULTS_DIR/sparse"
+MODEL_RESULTS_DIR="$RESULTS_DIR/$MODEL_TAG"
+mkdir -p "$SPARSE_RESULTS_DIR" "$MODEL_RESULTS_DIR"
 
 for spec in "${benchmarks[@]}"; do
   IFS=: read -r benchmark dataset <<< "$spec"
@@ -39,11 +42,9 @@ for spec in "${benchmarks[@]}"; do
   fi
 
   needs_dense_index=0
-  for mode in dense hybrid; do
-    if [[ "$FORCE_RERUN" == "1" || ! -s "$RESULTS_DIR/$name-$mode.json" ]]; then
-      needs_dense_index=1
-    fi
-  done
+  if [[ "$FORCE_RERUN" == "1" || ! -s "$MODEL_RESULTS_DIR/$name-dense.json" || ! -s "$MODEL_RESULTS_DIR/$name-hybrid.json" ]]; then
+    needs_dense_index=1
+  fi
 
   if [[ "$BUILD_INDEXES" == "1" && "$needs_dense_index" == "1" ]]; then
     if [[ "$REBUILD_INDEXES" != "1" ]] && curl -fsS "$QDRANT_URL/collections/$collection" >/dev/null 2>&1; then
@@ -62,7 +63,11 @@ for spec in "${benchmarks[@]}"; do
   fi
 
   for mode in sparse dense hybrid; do
-    result_file="$RESULTS_DIR/$name-$mode.json"
+    if [[ "$mode" == "sparse" ]]; then
+      result_file="$SPARSE_RESULTS_DIR/$name-$mode.json"
+    else
+      result_file="$MODEL_RESULTS_DIR/$name-$mode.json"
+    fi
     if [[ "$FORCE_RERUN" != "1" && -s "$result_file" ]]; then
       echo "Skipping $name ($mode): $result_file exists" >&2
       continue
@@ -80,4 +85,5 @@ for spec in "${benchmarks[@]}"; do
   done
 done
 
-echo "Results written to $RESULTS_DIR" >&2
+echo "Sparse results written to $SPARSE_RESULTS_DIR" >&2
+echo "Model results written to $MODEL_RESULTS_DIR" >&2
