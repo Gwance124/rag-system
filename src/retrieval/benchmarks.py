@@ -165,15 +165,18 @@ def load_mteb_hf(
 
     documents = [
         Document(
-            str(row["id"]),
+            str(row["id"] if "id" in row else row["_id"]),
             f"{row.get('title', '')} {row.get('text', '')}".strip(),
         )
         for row in corpus_table
     ]
-    queries = {str(row["id"]): row.get("text", row.get("query", "")) for row in query_table}
+    queries = {
+        str(row["id"] if "id" in row else row["_id"]): row.get("text", row.get("query", ""))
+        for row in query_table
+    }
     qrels: dict[str, set[str]] = {}
     for row in qrel_table:
-        if int(row.get("score", 1)) > 0:
+        if float(row.get("score", 1)) > 0:
             qrels.setdefault(str(row["query-id"]), set()).add(str(row["corpus-id"]))
     queries = {query_id: query for query_id, query in queries.items() if query_id in qrels}
     document_ids = {document.doc_id for document in documents}

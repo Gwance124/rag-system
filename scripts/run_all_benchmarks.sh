@@ -13,6 +13,7 @@ LITSEARCH_COLLECTION="${LITSEARCH_COLLECTION:-}"
 BATCH_SIZE="${BATCH_SIZE:-64}"
 BUILD_INDEXES="${BUILD_INDEXES:-1}"
 REBUILD_INDEXES="${REBUILD_INDEXES:-0}"
+FORCE_RERUN="${FORCE_RERUN:-0}"
 PYTHON_BIN="${PYTHON_BIN:-python}"
 
 benchmarks=(
@@ -37,8 +38,15 @@ for spec in "${benchmarks[@]}"; do
     benchmark_args+=(--dataset "$dataset")
   fi
 
-  if [[ "$BUILD_INDEXES" == "1" ]]; then
-    if [[ "$REBUILD_INDEXES" != "1" ]] && curl -fsS "$QDRANT_URL/collections/$collection" >/dev/null; then
+  needs_dense_index=0
+  for mode in dense hybrid; do
+    if [[ "$FORCE_RERUN" == "1" || ! -s "$RESULTS_DIR/$name-$mode.json" ]]; then
+      needs_dense_index=1
+    fi
+  done
+
+  if [[ "$BUILD_INDEXES" == "1" && "$needs_dense_index" == "1" ]]; then
+    if [[ "$REBUILD_INDEXES" != "1" ]] && curl -fsS "$QDRANT_URL/collections/$collection" >/dev/null 2>&1; then
       echo "Reusing $collection" >&2
     else
       echo "Building $collection" >&2
@@ -54,6 +62,11 @@ for spec in "${benchmarks[@]}"; do
   fi
 
   for mode in sparse dense hybrid; do
+    result_file="$RESULTS_DIR/$name-$mode.json"
+    if [[ "$FORCE_RERUN" != "1" && -s "$result_file" ]]; then
+      echo "Skipping $name ($mode): $result_file exists" >&2
+      continue
+    fi
     echo "Running $name ($mode)" >&2
     "$PYTHON_BIN" "$ROOT_DIR/scripts/run_public_bench.py" \
       "${benchmark_args[@]}" \
@@ -63,7 +76,7 @@ for spec in "${benchmarks[@]}"; do
       --embedding-api-model "$EMBEDDING_API_MODEL" \
       --qdrant-url "$QDRANT_URL" \
       --collection "$collection" \
-      > "$RESULTS_DIR/$name-$mode.json"
+      > "$result_file"
   done
 done
 

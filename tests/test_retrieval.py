@@ -198,15 +198,15 @@ def test_mteb_loader_reads_beir_schema(monkeypatch, tmp_path):
         assert dataset_id == "mteb/scifact"
         if config == "corpus":
             assert kwargs["split"] == "corpus"
-            return [{"id": "d1", "title": "Paper", "text": "Evidence"}]
+            return [{"_id": "d1", "title": "Paper", "text": "Evidence"}]
         if config == "queries":
             assert kwargs["split"] == "queries"
             return [
-                {"id": "q1", "text": "claim"},
-                {"id": "train-only", "text": "not in test qrels"},
+                {"_id": "q1", "text": "claim"},
+                {"_id": "train-only", "text": "not in test qrels"},
             ]
         assert kwargs["split"] == "test"
-        return [{"query-id": "q1", "corpus-id": "d1", "score": 1}]
+        return [{"query-id": "q1", "corpus-id": "d1", "score": 0.5}]
 
     monkeypatch.setitem(sys.modules, "datasets", SimpleNamespace(
         DownloadConfig=DownloadConfig,
@@ -236,9 +236,9 @@ def test_mteb_loader_excludes_identical_query_document_ids(monkeypatch):
 
     def load_dataset(dataset_id, config, **kwargs):
         if config == "corpus":
-            return [{"id": "same", "text": "document"}]
+            return [{"_id": "same", "text": "document"}]
         if config == "queries":
-            return [{"id": "same", "text": "query"}]
+            return [{"_id": "same", "text": "query"}]
         return [{"query-id": "same", "corpus-id": "other", "score": 1}]
 
     monkeypatch.setitem(sys.modules, "datasets", SimpleNamespace(

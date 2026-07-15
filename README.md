@@ -243,6 +243,13 @@ LITSEARCH_COLLECTION=litsearch-reason ./scripts/run_all_benchmarks.sh
 Set `REBUILD_INDEXES=1` only when every selected collection should be
 re-embedded.
 
+Non-empty result files are also reused by default. Force the benchmark runs
+to overwrite them without rebuilding collections with:
+
+```bash
+FORCE_RERUN=1 ./scripts/run_all_benchmarks.sh
+```
+
 The main overrides are `CACHE_DIR`, `RESULTS_DIR`, `QDRANT_URL`,
 `EMBEDDING_URL`, `EMBEDDING_MODEL`, `EMBEDDING_API_MODEL`, and `BATCH_SIZE`.
 This suite does not apply query alignment or reranking.
