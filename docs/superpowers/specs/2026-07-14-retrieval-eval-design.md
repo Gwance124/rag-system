@@ -12,12 +12,12 @@ Sequencing principle (user decision): **validate the pipeline on public benchmar
 
 - **Corpus:** focused 2–10k papers via seed + citation expansion, not the full 650k / 18.7k sets.
 - **Index phasing:** abstract-level index first (Phase A), full-text chunk index second (Phase B, reusing `latex-parser/src/chunking/`). These are *competing variants* scored by the same eval — NOT stages of one query path. Abstract-first routing is rejected as a recall trap (a paper whose relevant content is only in section 5 dies at the abstract gate).
-- **Retrieval:** hybrid BM25 + dense (nv-embed-reason-3b) with RRF fusion. No new reranker model for now; Qwen listwise rerank or a downloaded cross-encoder are later variants, gated on eval showing headroom.
+- **Retrieval evaluation:** compare embedding models first, then query alignment/rewrite variants, then rerankers over a fixed candidate set. Hybrid BM25 + dense with RRF remains one pipeline variant, not a predetermined winner.
 - **Scale sanity:** 2–10k papers ≈ ≤1M chunks — flat HNSW in Qdrant at ms latency. Long papers (95k tokens) are irrelevant to the index once chunked.
 - **Eval labels at the paper level** (query → set of relevant arXiv IDs), so one benchmark scores Phase A, Phase B, and every variant identically (chunk hits aggregate to papers via metadata).
-- **Current lab setup:** `llama-nv-embed-reason-3b` is served by vLLM on `solab-g3:8000` (OpenAI-compatible `/v1/embeddings`). The benchmark and corpus datasets are on `solab-p7`, which is the benchmark execution host. The benchmark checkout is `/mnt/nvme2/mlee/rag-system`; its Hugging Face cache root is `/mnt/nvme2/labuser/.cache/huggingface` (`hub/` for Hub artifacts and `datasets/` for dataset files), keeping both off the home disk. Hugging Face loading at benchmark time is cache-only (`local_files_only=True` plus offline mode); a cache miss must fail rather than reach the internet.
-- **Constraints:** BRIGHT is already available on Hugging Face (`xlangai/BRIGHT`; the MTEB mirror is `mteb/BrightRetrieval`), as are LitSearch (`princeton-nlp/LitSearch`) and MTEB's BEIR-format scientific tasks (`mteb/scifact`, `mteb/trec-covid`). Warm the cache once, copy it to `solab-p7`, and make all runtime HF loads cache-only. Semantic Scholar API is plain HTTPS; fallback is running fetch steps on the personal laptop and scp-ing the small JSON outputs. PyPI assumed reachable, but the first BM25 implementation is dependency-free.
-- **Deferred:** end-to-end answer-quality eval (RAGAS-style), latency *optimization* (measurement is built in from day one), rerankers, agentic/iterative retrieval (BRIGHT-Pro style) — all future variants on the same harness.
+- **Current lab setup:** `nvidia/llama-nv-embed-reasoning-3b` is served by vLLM at `192.168.3.4:8000` (OpenAI-compatible `/v1/embeddings`) under the API model alias `/model`. The benchmark and corpus datasets are on `solab-p7`, which is the benchmark execution host. The benchmark checkout is `/mnt/nvme2/mlee/rag-system`; its Hugging Face cache root is `/mnt/nvme2/labuser/.cache/huggingface` (`hub/` for Hub artifacts and `datasets/` for dataset files), keeping both off the home disk. Hugging Face loading at benchmark time is cache-only (`local_files_only=True` plus offline mode); a cache miss must fail rather than reach the internet.
+- **Constraints:** BRIGHT is already available on Hugging Face (`xlangai/BRIGHT`; the MTEB mirror is `mteb/BrightRetrieval`), as are LitSearch (`princeton-nlp/LitSearch`) and MTEB's BEIR-format tasks. SciDocs (`mteb/scidocs`) is the default BEIR task; SciFact and TREC-COVID are initial scientific checks, while the adapter accepts any cached MTEB-format BEIR dataset. Warm the cache once, copy it to `solab-p7`, and make all runtime HF loads cache-only. Semantic Scholar API is plain HTTPS; fallback is running fetch steps on the personal laptop and scp-ing the small JSON outputs. PyPI assumed reachable, but the first BM25 implementation is dependency-free.
+- **Deferred:** end-to-end answer-quality eval (RAGAS-style), latency *optimization* (measurement is built in from day one), and agentic/iterative retrieval (BRIGHT-Pro style). Query alignment and reranking are part of the public-benchmark phase before corpus construction.
 
 ## Architecture
 
@@ -32,7 +32,7 @@ Sequencing principle (user decision): **validate the pipeline on public benchmar
  (BM25 + nv-embed)                        chunk→paper metadata, error-budget fallback
 
                  EVAL TRACKS
- Track 1 (first): BRIGHT + LitSearch, then SciFact/TREC-COVID as compact scientific sanity checks — pipeline correctness + variant selection
+ Track 1 (first): LitSearch + SciDocs, then SciFact/TREC-COVID and BRIGHT — embedding, query-alignment, fusion, and reranking selection
  Track 2: citation-derived domain benchmark — the reported numbers
  Track 3: live teammate queries — qualitative, covers novel connections
 ```
@@ -44,7 +44,8 @@ chunk-to-paper aggregation, shared paper-level metrics, cache-only HF loaders
 for LitSearch and MTEB/BEIR, LitSearch paper-aligned R@5/R@20 subgroup
 reporting, a vLLM embeddings client, and a small Qdrant REST adapter.
 `scripts/run_public_bench.py` runs sparse, dense, or hybrid retrieval against
-LitSearch, SciFact, TREC-COVID, BRIGHT, or a generic local JSONL benchmark.
+LitSearch, BRIGHT, any cached MTEB-format BEIR task (SciDocs by default), or a
+generic local JSONL benchmark.
 
 ## Deliverables (in order)
 
@@ -58,9 +59,9 @@ Index-agnostic: takes any collection of `{doc_id, text, paper_id}` records.
 - Every knob (rewrite on/off, N, k, RRF weight, index choice) is a named config so evals sweep variants.
 
 ### 2. Public benchmark track — the baseline gate (`scripts/run_public_bench.py`)
-- Load **BRIGHT** from its Hugging Face copy on `solab-p7` (start with biology, earth-science, and stackoverflow; full set optional). Stage **LitSearch** (corpus + queries + qrels) there as well. Add **SciFact** and **TREC-COVID** when the first runner is working; they provide smaller scientific retrieval sanity checks beyond BRIGHT without changing the pipeline.
+- Stage **LitSearch** and **SciDocs** first. Add **SciFact**, **TREC-COVID**, and **BRIGHT**; support every other cached MTEB-format BEIR task through the same generic loader rather than dataset-specific code.
 - Adapter runs the same pipeline variants over these datasets with their official metrics.
-- **Gate criteria:** (a) nv-embed dense-only scores in the neighborhood of its published numbers — confirms embedding + search plumbing is correct; (b) variant matrix (dense-only vs BM25-only vs hybrid; rewrite on/off) produces a clear best config. Only then proceed to the domain experiment; if the baseline is broken, fix the pipeline first.
+- **Gate criteria:** (a) dense-only scores are in a plausible published range — confirms embedding + search plumbing is correct; (b) one frozen configuration is strong across the benchmark suite without major regressions. Sweep embedding model first, then query alignment, then reranking over fixed top-N candidates, and finally compare combined sparse/dense/hybrid variants. Only then proceed to the domain experiment; if the baseline is broken, fix the pipeline first.
 
 ### 3. Corpus builder (`src/corpus/`, `scripts/build_corpus.py`)
 - Input: `seeds.txt` of ~50–150 arXiv IDs collected from teammates' reading lists and the lab's own projects.

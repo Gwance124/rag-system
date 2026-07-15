@@ -8,6 +8,14 @@ from pathlib import Path
 from retrieval.types import Document
 
 
+DEFAULT_BEIR_DATASET = "scidocs"
+
+
+def mteb_dataset_id(dataset: str) -> str:
+    """Resolve a BEIR task name or preserve an explicit Hugging Face dataset ID."""
+    return dataset if "/" in dataset else f"mteb/{dataset}"
+
+
 @dataclass(frozen=True)
 class Benchmark:
     documents: list[Document]
@@ -167,4 +175,9 @@ def load_mteb_hf(
     for row in qrel_table:
         if int(row.get("score", 1)) > 0:
             qrels.setdefault(str(row["query-id"]), set()).add(str(row["corpus-id"]))
-    return Benchmark(documents, queries, qrels, {query_id: set() for query_id in queries})
+    document_ids = {document.doc_id for document in documents}
+    excluded_ids = {
+        query_id: {query_id} if query_id in document_ids else set()
+        for query_id in queries
+    }
+    return Benchmark(documents, queries, qrels, excluded_ids)

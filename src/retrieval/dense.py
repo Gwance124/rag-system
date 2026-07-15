@@ -14,7 +14,7 @@ class VllmEmbeddingClient:
 
     def __init__(
         self,
-        base_url: str = "http://solab-g3:8000/v1",
+        base_url: str = "http://192.168.3.4:8000/v1",
         model: str = "nvidia/llama-nv-embed-reasoning-3b",
         query_prefix: str = "query: ",
         passage_prefix: str = "passage: ",

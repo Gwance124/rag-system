@@ -3,7 +3,14 @@ import math
 import sys
 from types import SimpleNamespace
 
-from retrieval.benchmarks import load_bright_hf, load_jsonl_benchmark, load_litsearch_hf, load_mteb_hf
+from retrieval.benchmarks import (
+    DEFAULT_BEIR_DATASET,
+    load_bright_hf,
+    load_jsonl_benchmark,
+    load_litsearch_hf,
+    load_mteb_hf,
+    mteb_dataset_id,
+)
 from retrieval.dense import QdrantIndex
 from retrieval.fusion import aggregate_to_papers, rrf_fuse
 from retrieval.metrics import evaluate_litsearch_comparison, evaluate_run, ndcg_at_k, recall_at_k, reciprocal_rank
@@ -204,3 +211,34 @@ def test_mteb_loader_reads_beir_schema(monkeypatch, tmp_path):
     assert benchmark.queries == {"q1": "claim"}
     assert benchmark.qrels == {"q1": {"d1"}}
     assert benchmark.documents[0].text == "Paper Evidence"
+
+
+def test_beir_defaults_to_scidocs_and_accepts_any_mteb_dataset_id():
+    assert DEFAULT_BEIR_DATASET == "scidocs"
+    assert mteb_dataset_id("scidocs") == "mteb/scidocs"
+    assert mteb_dataset_id("cqadupstack-android") == "mteb/cqadupstack-android"
+    assert mteb_dataset_id("my-org/custom-beir") == "my-org/custom-beir"
+
+
+def test_mteb_loader_excludes_identical_query_document_ids(monkeypatch):
+    class DownloadConfig:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    class DownloadMode:
+        REUSE_DATASET_IF_EXISTS = "reuse"
+
+    def load_dataset(dataset_id, config, **kwargs):
+        if config == "corpus":
+            return [{"id": "same", "text": "document"}]
+        if config == "queries":
+            return [{"id": "same", "text": "query"}]
+        return [{"query-id": "same", "corpus-id": "other", "score": 1}]
+
+    monkeypatch.setitem(sys.modules, "datasets", SimpleNamespace(
+        DownloadConfig=DownloadConfig,
+        DownloadMode=DownloadMode,
+        load_dataset=load_dataset,
+    ))
+    benchmark = load_mteb_hf("mteb/arguana")
+    assert benchmark.excluded_ids == {"same": {"same"}}

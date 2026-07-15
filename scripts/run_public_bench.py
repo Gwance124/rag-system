@@ -8,7 +8,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from retrieval.benchmarks import load_bright_hf, load_jsonl_benchmark, load_litsearch_hf, load_mteb_hf
+from retrieval.benchmarks import (
+    DEFAULT_BEIR_DATASET,
+    load_bright_hf,
+    load_jsonl_benchmark,
+    load_litsearch_hf,
+    load_mteb_hf,
+    mteb_dataset_id,
+)
 from retrieval.dense import QdrantIndex, VllmEmbeddingClient
 from retrieval.metrics import evaluate_litsearch_comparison, evaluate_run
 from retrieval.pipeline import HybridRetriever
@@ -16,11 +23,15 @@ from retrieval.sparse import BM25Index
 from retrieval.types import RetrievalConfig
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run the first retrieval baseline on BRIGHT or JSONL data.")
+    parser = argparse.ArgumentParser(description="Run retrieval benchmarks from the local cache or JSONL files.")
     parser.add_argument("--benchmark", choices=("bright", "litsearch", "beir", "jsonl"), default="litsearch")
     parser.add_argument("--domain", default="biology", help="BRIGHT domain/configuration")
-    parser.add_argument("--dataset-id", default="xlangai/BRIGHT")
-    parser.add_argument("--dataset", default="scifact", help="MTEB/BEIR dataset name, e.g. scifact or trec-covid")
+    parser.add_argument("--dataset-id", help="Hugging Face dataset ID override")
+    parser.add_argument(
+        "--dataset",
+        default=DEFAULT_BEIR_DATASET,
+        help="MTEB/BEIR dataset name or full dataset ID (default: scidocs)",
+    )
     parser.add_argument("--split", default="test")
     parser.add_argument("--long-documents", action="store_true")
     parser.add_argument(
@@ -35,23 +46,27 @@ def main() -> None:
     parser.add_argument("--mode", choices=("sparse", "dense", "hybrid"), default="sparse")
     parser.add_argument("--embedding-url", default="http://192.168.3.4:8000/v1")
     parser.add_argument("--embedding-model", default="nvidia/llama-nv-embed-reasoning-3b")
+    parser.add_argument("--embedding-api-model", help="vLLM served model name, if different from the checkpoint name")
     parser.add_argument("--query-prefix", default="query: ")
     parser.add_argument("--passage-prefix", default="passage: ")
     parser.add_argument("--qdrant-url", help="Qdrant REST base URL on the benchmark host")
-    parser.add_argument("--collection", help="Qdrant collection for the selected corpus")
+    parser.add_argument("--collection", help="Qdrant collection for this corpus and embedding model")
     args = parser.parse_args()
 
+    dataset_id = None
     if args.benchmark == "bright":
+        dataset_id = args.dataset_id or "xlangai/BRIGHT"
         benchmark = load_bright_hf(
             args.domain,
-            dataset_id=args.dataset_id,
+            dataset_id=dataset_id,
             long_documents=args.long_documents,
             cache_dir=args.cache_dir,
         )
     elif args.benchmark == "litsearch":
-        benchmark = load_litsearch_hf(cache_dir=args.cache_dir)
+        dataset_id = args.dataset_id or "princeton-nlp/LitSearch"
+        benchmark = load_litsearch_hf(dataset_id=dataset_id, cache_dir=args.cache_dir)
     elif args.benchmark == "beir":
-        dataset_id = args.dataset_id if args.dataset_id != "xlangai/BRIGHT" else f"mteb/{args.dataset}"
+        dataset_id = args.dataset_id or mteb_dataset_id(args.dataset)
         benchmark = load_mteb_hf(dataset_id, split=args.split, cache_dir=args.cache_dir)
     else:
         if not all((args.documents, args.queries, args.qrels)):
@@ -67,7 +82,7 @@ def main() -> None:
             args.collection,
             VllmEmbeddingClient(
                 args.embedding_url,
-                args.embedding_model,
+                args.embedding_api_model or args.embedding_model,
                 args.query_prefix,
                 args.passage_prefix,
             ),
@@ -94,11 +109,26 @@ def main() -> None:
     output = {
         "config": {
             "benchmark": args.benchmark,
+            "dataset": dataset_id.rsplit("/", 1)[-1] if args.benchmark == "beir" else None,
+            "dataset_id": dataset_id,
+            "domain": args.domain if args.benchmark == "bright" else None,
+            "split": args.split if args.benchmark == "beir" else None,
             "mode": args.mode,
             "embedding_model": args.embedding_model if args.mode in ("dense", "hybrid") else None,
+            "embedding_api_model": (
+                args.embedding_api_model or args.embedding_model
+                if args.mode in ("dense", "hybrid")
+                else None
+            ),
             "query_prefix": args.query_prefix if args.mode in ("dense", "hybrid") else None,
             "passage_prefix": args.passage_prefix if args.mode in ("dense", "hybrid") else None,
-            "documents": "title+abstract" if args.benchmark == "litsearch" else None,
+            "collection": args.collection if args.mode in ("dense", "hybrid") else None,
+            "documents": {
+                "bright": "content",
+                "litsearch": "title+abstract",
+                "beir": "title+text",
+                "jsonl": "text",
+            }[args.benchmark],
         },
         "metrics": evaluate_run(run, benchmark.qrels, ks=(5, 10, 20, 50, 100)),
         "queries": len(run),

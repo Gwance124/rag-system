@@ -28,12 +28,18 @@ pip install -e ".[eval]"
 python scripts/run_public_bench.py --benchmark litsearch
 ```
 
-LitSearch and the BEIR scientific sanity checks are loaded from these cached
+LitSearch and the default scientific checks are loaded from these cached
 Hugging Face datasets:
 
 - `princeton-nlp/LitSearch`
+- `mteb/scidocs` (the default for `--benchmark beir`)
 - `mteb/scifact`
 - `mteb/trec-covid`
+
+The BEIR adapter is not limited to that shortlist. `--dataset NAME` resolves
+to `mteb/NAME`, and `--dataset-id ORG/NAME` accepts any cached MTEB-format
+BEIR mirror directly. This covers the public BEIR tasks without adding a new
+loader for every dataset.
 
 Warm the cache once on a machine with internet, copy that Hugging Face cache
 to `solab-p7`, then run:
@@ -48,7 +54,7 @@ cache = "/mnt/nvme2/labuser/.cache/huggingface/datasets"
 for config in ("query", "corpus_clean"):
     load_dataset("princeton-nlp/LitSearch", config, split="full", cache_dir=cache)
 
-for dataset in ("scifact", "trec-covid"):
+for dataset in ("scidocs", "scifact", "trec-covid"):
     for config in ("corpus", "queries", "default"):
         load_dataset(f"mteb/{dataset}", config, split="test", cache_dir=cache)
 PY
@@ -57,10 +63,17 @@ python scripts/run_public_bench.py \
   --benchmark litsearch --cache-dir /mnt/nvme2/labuser/.cache/huggingface
 
 python scripts/run_public_bench.py \
+  --benchmark beir --cache-dir /mnt/nvme2/labuser/.cache/huggingface
+
+python scripts/run_public_bench.py \
   --benchmark beir --dataset scifact --cache-dir /mnt/nvme2/labuser/.cache/huggingface
 
 python scripts/run_public_bench.py \
   --benchmark beir --dataset trec-covid --cache-dir /mnt/nvme2/labuser/.cache/huggingface
+
+# Any other cached MTEB-format BEIR dataset works the same way.
+python scripts/run_public_bench.py \
+  --benchmark beir --dataset nfcorpus --cache-dir /mnt/nvme2/labuser/.cache/huggingface
 ```
 
 `--cache-dir` is the Hugging Face root, not the `hub/` directory itself. The
@@ -86,7 +99,22 @@ python scripts/run_public_bench.py \
 BRIGHT remains available through `--benchmark bright`; its configs are
 `examples` and `documents` in `xlangai/BRIGHT`. All runtime HF loads are
 cache-only and fail on a cache miss. Dense runs still use the configured vLLM
-endpoint (`solab-g3:8000`) for embeddings.
+endpoint (`192.168.3.4:8000`) for embeddings.
+
+### Dataset and index storage
+
+All Hugging Face datasets share one cache root, but Hugging Face stores each
+dataset and configuration in its own directory under `datasets/`. They do not
+need hand-created directories and are not combined into one benchmark corpus.
+
+Qdrant collections should be named by benchmark corpus and document embedding
+model, for example `beir-scidocs-llama-nv-reasoning-3b`. Each BEIR dataset gets
+its own collection because its corpus and document IDs are independent. Each
+embedding model also gets its own collection because vector dimensions and
+spaces can differ. Dense and hybrid runs reuse the same dense collection;
+BM25 is rebuilt in memory. Query rewrites, query prefixes, and rerankers reuse
+the collection because they do not change stored document vectors. Changing
+the passage model, passage prefix, or document text requires a new collection.
 
 ### LitSearch paper-aligned results
 
@@ -113,6 +141,7 @@ python scripts/build_dense_index.py \
   --benchmark litsearch \
   --cache-dir /mnt/nvme2/labuser/.cache/huggingface \
   --embedding-model nvidia/llama-nv-embed-reasoning-3b \
+  --embedding-api-model /model \
   --qdrant-url http://localhost:6333 \
   --collection litsearch-reason
 
@@ -121,6 +150,7 @@ python scripts/run_public_bench.py \
   --cache-dir /mnt/nvme2/labuser/.cache/huggingface \
   --mode dense \
   --embedding-model nvidia/llama-nv-embed-reasoning-3b \
+  --embedding-api-model /model \
   --qdrant-url http://localhost:6333 \
   --collection litsearch-reason > results/litsearch-reason.json
 ```
@@ -165,7 +195,7 @@ dataset_cache = os.path.join(cache, "datasets")
 for config in ("query", "corpus_clean"):
     load_dataset("princeton-nlp/LitSearch", config, split="full", cache_dir=dataset_cache)
 
-for dataset in ("scifact", "trec-covid"):
+for dataset in ("scidocs", "scifact", "trec-covid"):
     for config in ("corpus", "queries", "default"):
         load_dataset(f"mteb/{dataset}", config, split="test", cache_dir=dataset_cache)
 '@ | python -
@@ -177,7 +207,7 @@ scp -r "C:/hf-cache/datasets" "C:/hf-cache/hub" `
 
 The server should then have `/mnt/nvme2/labuser/.cache/huggingface/datasets`
 and `/mnt/nvme2/labuser/.cache/huggingface/hub`. The embedding model cache is
-separate: vLLM is already serving it from `solab-g3:8000`, so the benchmark
+separate: vLLM is already serving it from `192.168.3.4:8000`, so the benchmark
 runner on `solab-p7` sends embedding requests there and does not need the model
 copied locally.
 
