@@ -9,8 +9,10 @@ EMBEDDING_URL="${EMBEDDING_URL:-http://192.168.3.4:8000/v1}"
 EMBEDDING_MODEL="${EMBEDDING_MODEL:-nvidia/llama-nv-embed-reasoning-3b}"
 EMBEDDING_API_MODEL="${EMBEDDING_API_MODEL:-/model}"
 COLLECTION_TAG="${COLLECTION_TAG:-${EMBEDDING_MODEL##*/}}"
+LITSEARCH_COLLECTION="${LITSEARCH_COLLECTION:-}"
 BATCH_SIZE="${BATCH_SIZE:-64}"
 BUILD_INDEXES="${BUILD_INDEXES:-1}"
+REBUILD_INDEXES="${REBUILD_INDEXES:-0}"
 PYTHON_BIN="${PYTHON_BIN:-python}"
 
 benchmarks=(
@@ -27,21 +29,28 @@ for spec in "${benchmarks[@]}"; do
   IFS=: read -r benchmark dataset <<< "$spec"
   name="$benchmark${dataset:+-$dataset}"
   collection="$name-$COLLECTION_TAG"
+  if [[ "$name" == "litsearch" && -n "$LITSEARCH_COLLECTION" ]]; then
+    collection="$LITSEARCH_COLLECTION"
+  fi
   benchmark_args=(--benchmark "$benchmark" --cache-dir "$CACHE_DIR")
   if [[ -n "$dataset" ]]; then
     benchmark_args+=(--dataset "$dataset")
   fi
 
   if [[ "$BUILD_INDEXES" == "1" ]]; then
-    echo "Building $collection" >&2
-    "$PYTHON_BIN" "$ROOT_DIR/scripts/build_dense_index.py" \
-      "${benchmark_args[@]}" \
-      --embedding-url "$EMBEDDING_URL" \
-      --embedding-model "$EMBEDDING_MODEL" \
-      --embedding-api-model "$EMBEDDING_API_MODEL" \
-      --qdrant-url "$QDRANT_URL" \
-      --collection "$collection" \
-      --batch-size "$BATCH_SIZE"
+    if [[ "$REBUILD_INDEXES" != "1" ]] && curl -fsS "$QDRANT_URL/collections/$collection" >/dev/null; then
+      echo "Reusing $collection" >&2
+    else
+      echo "Building $collection" >&2
+      "$PYTHON_BIN" "$ROOT_DIR/scripts/build_dense_index.py" \
+        "${benchmark_args[@]}" \
+        --embedding-url "$EMBEDDING_URL" \
+        --embedding-model "$EMBEDDING_MODEL" \
+        --embedding-api-model "$EMBEDDING_API_MODEL" \
+        --qdrant-url "$QDRANT_URL" \
+        --collection "$collection" \
+        --batch-size "$BATCH_SIZE"
+    fi
   fi
 
   for mode in sparse dense hybrid; do

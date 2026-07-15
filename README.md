@@ -232,6 +232,17 @@ collections on later runs:
 BUILD_INDEXES=0 ./scripts/run_all_benchmarks.sh
 ```
 
+Existing collections are reused by default. To reuse the original LitSearch
+collection created earlier in this project while building the missing MTEB
+collections:
+
+```bash
+LITSEARCH_COLLECTION=litsearch-reason ./scripts/run_all_benchmarks.sh
+```
+
+Set `REBUILD_INDEXES=1` only when every selected collection should be
+re-embedded.
+
 The main overrides are `CACHE_DIR`, `RESULTS_DIR`, `QDRANT_URL`,
 `EMBEDDING_URL`, `EMBEDDING_MODEL`, `EMBEDDING_API_MODEL`, and `BATCH_SIZE`.
 This suite does not apply query alignment or reranking.
