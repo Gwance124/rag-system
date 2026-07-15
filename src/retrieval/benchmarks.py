@@ -159,8 +159,8 @@ def load_mteb_hf(
     cache_dir: str | Path | None = None,
 ) -> Benchmark:
     """Load an MTEB-format BEIR task, such as mteb/scifact."""
-    corpus_table = _load_hf_split(dataset_id, "corpus", split, cache_dir)
-    query_table = _load_hf_split(dataset_id, "queries", split, cache_dir)
+    corpus_table = _load_hf_split(dataset_id, "corpus", "corpus", cache_dir)
+    query_table = _load_hf_split(dataset_id, "queries", "queries", cache_dir)
     qrel_table = _load_hf_split(dataset_id, "default", split, cache_dir)
 
     documents = [
@@ -175,6 +175,7 @@ def load_mteb_hf(
     for row in qrel_table:
         if int(row.get("score", 1)) > 0:
             qrels.setdefault(str(row["query-id"]), set()).add(str(row["corpus-id"]))
+    queries = {query_id: query for query_id, query in queries.items() if query_id in qrels}
     document_ids = {document.doc_id for document in documents}
     excluded_ids = {
         query_id: {query_id} if query_id in document_ids else set()

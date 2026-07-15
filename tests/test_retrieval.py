@@ -197,9 +197,15 @@ def test_mteb_loader_reads_beir_schema(monkeypatch, tmp_path):
     def load_dataset(dataset_id, config, **kwargs):
         assert dataset_id == "mteb/scifact"
         if config == "corpus":
+            assert kwargs["split"] == "corpus"
             return [{"id": "d1", "title": "Paper", "text": "Evidence"}]
         if config == "queries":
-            return [{"id": "q1", "text": "claim"}]
+            assert kwargs["split"] == "queries"
+            return [
+                {"id": "q1", "text": "claim"},
+                {"id": "train-only", "text": "not in test qrels"},
+            ]
+        assert kwargs["split"] == "test"
         return [{"query-id": "q1", "corpus-id": "d1", "score": 1}]
 
     monkeypatch.setitem(sys.modules, "datasets", SimpleNamespace(

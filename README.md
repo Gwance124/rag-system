@@ -34,6 +34,7 @@ Hugging Face datasets:
 - `princeton-nlp/LitSearch`
 - `mteb/scidocs` (the default for `--benchmark mteb`)
 - `mteb/scifact`
+- `mteb/nfcorpus`
 - `mteb/trec-covid`
 
 The MTEB retrieval adapter is not limited to that shortlist. `--dataset NAME` resolves
@@ -55,9 +56,10 @@ cache = "/mnt/nvme2/labuser/.cache/huggingface/datasets"
 for config in ("query", "corpus_clean"):
     load_dataset("princeton-nlp/LitSearch", config, split="full", cache_dir=cache)
 
-for dataset in ("scidocs", "scifact", "trec-covid"):
-    for config in ("corpus", "queries", "default"):
-        load_dataset(f"mteb/{dataset}", config, split="test", cache_dir=cache)
+for dataset in ("scidocs", "scifact", "nfcorpus", "trec-covid"):
+    load_dataset(f"mteb/{dataset}", "corpus", split="corpus", cache_dir=cache)
+    load_dataset(f"mteb/{dataset}", "queries", split="queries", cache_dir=cache)
+    load_dataset(f"mteb/{dataset}", "default", split="test", cache_dir=cache)
 PY
 
 python scripts/run_public_bench.py \
@@ -196,9 +198,10 @@ dataset_cache = os.path.join(cache, "datasets")
 for config in ("query", "corpus_clean"):
     load_dataset("princeton-nlp/LitSearch", config, split="full", cache_dir=dataset_cache)
 
-for dataset in ("scidocs", "scifact", "trec-covid"):
-    for config in ("corpus", "queries", "default"):
-        load_dataset(f"mteb/{dataset}", config, split="test", cache_dir=dataset_cache)
+for dataset in ("scidocs", "scifact", "nfcorpus", "trec-covid"):
+    load_dataset(f"mteb/{dataset}", "corpus", split="corpus", cache_dir=dataset_cache)
+    load_dataset(f"mteb/{dataset}", "queries", split="queries", cache_dir=dataset_cache)
+    load_dataset(f"mteb/{dataset}", "default", split="test", cache_dir=dataset_cache)
 '@ | python -
 
 ssh username@solab-p7 "mkdir -p /mnt/nvme2/labuser/.cache/huggingface"
@@ -211,6 +214,27 @@ and `/mnt/nvme2/labuser/.cache/huggingface/hub`. The embedding model cache is
 separate: vLLM is already serving it from `192.168.3.4:8000`, so the benchmark
 runner on `solab-p7` sends embedding requests there and does not need the model
 copied locally.
+
+### Run the current benchmark suite
+
+After staging the five datasets, run sparse, dense, and hybrid retrieval over
+all of them with:
+
+```bash
+./scripts/run_all_benchmarks.sh
+```
+
+The script builds one Qdrant collection per dataset for the configured
+embedding model, then writes JSON files under `results/public/`. To reuse
+collections on later runs:
+
+```bash
+BUILD_INDEXES=0 ./scripts/run_all_benchmarks.sh
+```
+
+The main overrides are `CACHE_DIR`, `RESULTS_DIR`, `QDRANT_URL`,
+`EMBEDDING_URL`, `EMBEDDING_MODEL`, `EMBEDDING_API_MODEL`, and `BATCH_SIZE`.
+This suite does not apply query alignment or reranking.
 
 If an older staging run put `princeton-nlp___lit_search/` directly under
 `hub/`, move that processed dataset cache into `datasets/` before running
