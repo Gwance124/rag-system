@@ -4,7 +4,7 @@ import sys
 from types import SimpleNamespace
 
 from retrieval.benchmarks import (
-    DEFAULT_BEIR_DATASET,
+    DEFAULT_MTEB_DATASET,
     load_bright_hf,
     load_jsonl_benchmark,
     load_litsearch_hf,
@@ -213,8 +213,8 @@ def test_mteb_loader_reads_beir_schema(monkeypatch, tmp_path):
     assert benchmark.documents[0].text == "Paper Evidence"
 
 
-def test_beir_defaults_to_scidocs_and_accepts_any_mteb_dataset_id():
-    assert DEFAULT_BEIR_DATASET == "scidocs"
+def test_mteb_defaults_to_scidocs_and_accepts_any_dataset_id():
+    assert DEFAULT_MTEB_DATASET == "scidocs"
     assert mteb_dataset_id("scidocs") == "mteb/scidocs"
     assert mteb_dataset_id("cqadupstack-android") == "mteb/cqadupstack-android"
     assert mteb_dataset_id("my-org/custom-beir") == "my-org/custom-beir"

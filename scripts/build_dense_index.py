@@ -9,7 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from retrieval.benchmarks import (
-    DEFAULT_BEIR_DATASET,
+    DEFAULT_MTEB_DATASET,
     load_bright_hf,
     load_litsearch_hf,
     load_mteb_hf,
@@ -21,10 +21,15 @@ from retrieval.types import Document
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build a Qdrant dense index from the local HF cache or JSONL.")
-    parser.add_argument("--benchmark", choices=("bright", "litsearch", "beir", "jsonl"), default="litsearch")
+    parser.add_argument(
+        "--benchmark",
+        choices=("bright", "litsearch", "mteb", "beir", "jsonl"),
+        default="litsearch",
+        help="benchmark family; beir is a backward-compatible alias for mteb",
+    )
     parser.add_argument("--domain", default="biology")
     parser.add_argument("--dataset-id", help="Hugging Face dataset ID override")
-    parser.add_argument("--dataset", default=DEFAULT_BEIR_DATASET, help="MTEB/BEIR dataset (default: scidocs)")
+    parser.add_argument("--dataset", default=DEFAULT_MTEB_DATASET, help="MTEB retrieval dataset (default: scidocs)")
     parser.add_argument("--split", default="test")
     parser.add_argument("--long-documents", action="store_true")
     parser.add_argument("--cache-dir", help="Hugging Face root containing hub/ and datasets/")
@@ -38,6 +43,7 @@ def main() -> None:
     parser.add_argument("--passage-prefix", default="passage: ")
     parser.add_argument("--batch-size", type=int, default=32)
     args = parser.parse_args()
+    is_mteb = args.benchmark in ("mteb", "beir")
 
     if args.benchmark == "bright":
         benchmark = load_bright_hf(
@@ -52,7 +58,7 @@ def main() -> None:
             dataset_id=args.dataset_id or "princeton-nlp/LitSearch",
             cache_dir=args.cache_dir,
         ).documents
-    elif args.benchmark == "beir":
+    elif is_mteb:
         dataset_id = args.dataset_id or mteb_dataset_id(args.dataset)
         documents = load_mteb_hf(dataset_id, split=args.split, cache_dir=args.cache_dir).documents
     else:

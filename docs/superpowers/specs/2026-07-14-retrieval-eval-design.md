@@ -44,7 +44,7 @@ chunk-to-paper aggregation, shared paper-level metrics, cache-only HF loaders
 for LitSearch and MTEB/BEIR, LitSearch paper-aligned R@5/R@20 subgroup
 reporting, a vLLM embeddings client, and a small Qdrant REST adapter.
 `scripts/run_public_bench.py` runs sparse, dense, or hybrid retrieval against
-LitSearch, BRIGHT, any cached MTEB-format BEIR task (SciDocs by default), or a
+LitSearch, BRIGHT, any cached MTEB retrieval task (SciDocs from BEIR by default), or a
 generic local JSONL benchmark.
 
 ## Deliverables (in order)

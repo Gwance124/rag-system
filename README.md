@@ -32,14 +32,15 @@ LitSearch and the default scientific checks are loaded from these cached
 Hugging Face datasets:
 
 - `princeton-nlp/LitSearch`
-- `mteb/scidocs` (the default for `--benchmark beir`)
+- `mteb/scidocs` (the default for `--benchmark mteb`)
 - `mteb/scifact`
 - `mteb/trec-covid`
 
-The BEIR adapter is not limited to that shortlist. `--dataset NAME` resolves
+The MTEB retrieval adapter is not limited to that shortlist. `--dataset NAME` resolves
 to `mteb/NAME`, and `--dataset-id ORG/NAME` accepts any cached MTEB-format
-BEIR mirror directly. This covers the public BEIR tasks without adding a new
-loader for every dataset.
+dataset directly. This covers the BEIR retrieval datasets hosted under MTEB
+without adding a new loader for every dataset. `--benchmark beir` remains as
+a backward-compatible alias.
 
 Warm the cache once on a machine with internet, copy that Hugging Face cache
 to `solab-p7`, then run:
@@ -63,17 +64,17 @@ python scripts/run_public_bench.py \
   --benchmark litsearch --cache-dir /mnt/nvme2/labuser/.cache/huggingface
 
 python scripts/run_public_bench.py \
-  --benchmark beir --cache-dir /mnt/nvme2/labuser/.cache/huggingface
+  --benchmark mteb --cache-dir /mnt/nvme2/labuser/.cache/huggingface
 
 python scripts/run_public_bench.py \
-  --benchmark beir --dataset scifact --cache-dir /mnt/nvme2/labuser/.cache/huggingface
+  --benchmark mteb --dataset scifact --cache-dir /mnt/nvme2/labuser/.cache/huggingface
 
 python scripts/run_public_bench.py \
-  --benchmark beir --dataset trec-covid --cache-dir /mnt/nvme2/labuser/.cache/huggingface
+  --benchmark mteb --dataset trec-covid --cache-dir /mnt/nvme2/labuser/.cache/huggingface
 
 # Any other cached MTEB-format BEIR dataset works the same way.
 python scripts/run_public_bench.py \
-  --benchmark beir --dataset nfcorpus --cache-dir /mnt/nvme2/labuser/.cache/huggingface
+  --benchmark mteb --dataset nfcorpus --cache-dir /mnt/nvme2/labuser/.cache/huggingface
 ```
 
 `--cache-dir` is the Hugging Face root, not the `hub/` directory itself. The
@@ -108,7 +109,7 @@ dataset and configuration in its own directory under `datasets/`. They do not
 need hand-created directories and are not combined into one benchmark corpus.
 
 Qdrant collections should be named by benchmark corpus and document embedding
-model, for example `beir-scidocs-llama-nv-reasoning-3b`. Each BEIR dataset gets
+model, for example `mteb-scidocs-llama-nv-reasoning-3b`. Each BEIR dataset gets
 its own collection because its corpus and document IDs are independent. Each
 embedding model also gets its own collection because vector dimensions and
 spaces can differ. Dense and hybrid runs reuse the same dense collection;

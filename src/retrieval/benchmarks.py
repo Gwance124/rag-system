@@ -8,7 +8,7 @@ from pathlib import Path
 from retrieval.types import Document
 
 
-DEFAULT_BEIR_DATASET = "scidocs"
+DEFAULT_MTEB_DATASET = "scidocs"
 
 
 def mteb_dataset_id(dataset: str) -> str:

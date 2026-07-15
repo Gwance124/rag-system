@@ -9,7 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from retrieval.benchmarks import (
-    DEFAULT_BEIR_DATASET,
+    DEFAULT_MTEB_DATASET,
     load_bright_hf,
     load_jsonl_benchmark,
     load_litsearch_hf,
@@ -24,12 +24,17 @@ from retrieval.types import RetrievalConfig
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run retrieval benchmarks from the local cache or JSONL files.")
-    parser.add_argument("--benchmark", choices=("bright", "litsearch", "beir", "jsonl"), default="litsearch")
+    parser.add_argument(
+        "--benchmark",
+        choices=("bright", "litsearch", "mteb", "beir", "jsonl"),
+        default="litsearch",
+        help="benchmark family; beir is a backward-compatible alias for mteb",
+    )
     parser.add_argument("--domain", default="biology", help="BRIGHT domain/configuration")
     parser.add_argument("--dataset-id", help="Hugging Face dataset ID override")
     parser.add_argument(
         "--dataset",
-        default=DEFAULT_BEIR_DATASET,
+        default=DEFAULT_MTEB_DATASET,
         help="MTEB/BEIR dataset name or full dataset ID (default: scidocs)",
     )
     parser.add_argument("--split", default="test")
@@ -52,6 +57,7 @@ def main() -> None:
     parser.add_argument("--qdrant-url", help="Qdrant REST base URL on the benchmark host")
     parser.add_argument("--collection", help="Qdrant collection for this corpus and embedding model")
     args = parser.parse_args()
+    is_mteb = args.benchmark in ("mteb", "beir")
 
     dataset_id = None
     if args.benchmark == "bright":
@@ -65,7 +71,7 @@ def main() -> None:
     elif args.benchmark == "litsearch":
         dataset_id = args.dataset_id or "princeton-nlp/LitSearch"
         benchmark = load_litsearch_hf(dataset_id=dataset_id, cache_dir=args.cache_dir)
-    elif args.benchmark == "beir":
+    elif is_mteb:
         dataset_id = args.dataset_id or mteb_dataset_id(args.dataset)
         benchmark = load_mteb_hf(dataset_id, split=args.split, cache_dir=args.cache_dir)
     else:
@@ -108,11 +114,11 @@ def main() -> None:
 
     output = {
         "config": {
-            "benchmark": args.benchmark,
-            "dataset": dataset_id.rsplit("/", 1)[-1] if args.benchmark == "beir" else None,
+            "benchmark": "mteb" if is_mteb else args.benchmark,
+            "dataset": dataset_id.rsplit("/", 1)[-1] if is_mteb else None,
             "dataset_id": dataset_id,
             "domain": args.domain if args.benchmark == "bright" else None,
-            "split": args.split if args.benchmark == "beir" else None,
+            "split": args.split if is_mteb else None,
             "mode": args.mode,
             "embedding_model": args.embedding_model if args.mode in ("dense", "hybrid") else None,
             "embedding_api_model": (
@@ -126,6 +132,7 @@ def main() -> None:
             "documents": {
                 "bright": "content",
                 "litsearch": "title+abstract",
+                "mteb": "title+text",
                 "beir": "title+text",
                 "jsonl": "text",
             }[args.benchmark],
