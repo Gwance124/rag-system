@@ -14,6 +14,7 @@ from retrieval.benchmarks import (
     load_jsonl_benchmark,
     load_litsearch_hf,
     load_mteb_hf,
+    load_scholargym_benchmark,
     mteb_dataset_id,
 )
 from retrieval.dense import QdrantIndex, VllmEmbeddingClient
@@ -26,7 +27,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run retrieval benchmarks from the local cache or JSONL files.")
     parser.add_argument(
         "--benchmark",
-        choices=("bright", "litsearch", "mteb", "beir", "jsonl"),
+        choices=("bright", "litsearch", "mteb", "beir", "scholargym", "jsonl"),
         default="litsearch",
         help="benchmark family; beir is a backward-compatible alias for mteb",
     )
@@ -46,6 +47,9 @@ def main() -> None:
     parser.add_argument("--documents")
     parser.add_argument("--queries")
     parser.add_argument("--qrels")
+    parser.add_argument("--scholargym-paper-db", help="ScholarGym scholargym_paper_db.json")
+    parser.add_argument("--scholargym-benchmark", help="ScholarGym scholargym_bench.jsonl")
+    parser.add_argument("--scholargym-query-limit", type=int)
     parser.add_argument("--top-n", type=int, default=100)
     parser.add_argument("--top-k", type=int, default=100)
     parser.add_argument("--mode", choices=("sparse", "dense", "hybrid"), default="sparse")
@@ -74,6 +78,14 @@ def main() -> None:
     elif is_mteb:
         dataset_id = args.dataset_id or mteb_dataset_id(args.dataset)
         benchmark = load_mteb_hf(dataset_id, split=args.split, cache_dir=args.cache_dir)
+    elif args.benchmark == "scholargym":
+        if not args.scholargym_paper_db or not args.scholargym_benchmark:
+            parser.error("ScholarGym requires --scholargym-paper-db and --scholargym-benchmark")
+        benchmark = load_scholargym_benchmark(
+            args.scholargym_paper_db,
+            args.scholargym_benchmark,
+            query_limit=args.scholargym_query_limit,
+        )
     else:
         if not all((args.documents, args.queries, args.qrels)):
             parser.error("jsonl benchmarks require --documents, --queries, and --qrels")
@@ -119,6 +131,10 @@ def main() -> None:
             "dataset_id": dataset_id,
             "domain": args.domain if args.benchmark == "bright" else None,
             "split": args.split if is_mteb else None,
+            "custom_extension": args.benchmark == "scholargym",
+            "scholargym_paper_db": args.scholargym_paper_db if args.benchmark == "scholargym" else None,
+            "scholargym_benchmark": args.scholargym_benchmark if args.benchmark == "scholargym" else None,
+            "scholargym_query_limit": args.scholargym_query_limit if args.benchmark == "scholargym" else None,
             "mode": args.mode,
             "embedding_model": args.embedding_model if args.mode in ("dense", "hybrid") else None,
             "embedding_api_model": (
@@ -134,6 +150,7 @@ def main() -> None:
                 "litsearch": "title+abstract",
                 "mteb": "title+text",
                 "beir": "title+text",
+                "scholargym": "title+abstract",
                 "jsonl": "text",
             }[args.benchmark],
         },
@@ -143,6 +160,14 @@ def main() -> None:
     }
     if args.benchmark == "litsearch":
         output["litsearch_paper_comparison"] = evaluate_litsearch_comparison(benchmark, run)
+    elif args.benchmark == "scholargym":
+        output["scholargym_static"] = {
+            "label": "ScholarGym-static (custom extension)",
+            "retrieval": "single-shot title+abstract",
+            "primary_metrics": ["recall@20", "recall@50"],
+            "secondary_metrics": ["ndcg@10"],
+            "query_sources": sorted({metadata.get("source") for metadata in (benchmark.query_metadata or {}).values() if metadata.get("source")}),
+        }
     print(json.dumps(output, indent=2))
 
 

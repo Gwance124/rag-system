@@ -37,6 +37,51 @@ Hugging Face datasets:
 - `mteb/nfcorpus`
 - `mteb/trec-covid`
 
+ScholarGym-static is available as a custom single-shot retrieval extension. The
+authors release `scholargym_bench.jsonl` (queries and ground-truth arXiv IDs)
+and `scholargym_paper_db.json` (the title/abstract corpus) in the
+[ScholarGym repository](https://github.com/shenhao-stu/ScholarGym) and on
+[Hugging Face](https://huggingface.co/datasets/shenhao/ScholarGym). It is not
+the official agentic ScholarGym evaluation; this runner reports the static
+retriever metrics only.
+
+After downloading those two files, run the fast sparse check with:
+
+```bash
+python scripts/run_public_bench.py \
+  --benchmark scholargym \
+  --scholargym-paper-db /path/to/scholargym_paper_db.json \
+  --scholargym-benchmark /path/to/scholargym_bench.jsonl \
+  --mode sparse --top-k 100
+```
+
+Build and run its dense or hybrid collection with the same model-specific
+prefixes used for the other benchmarks:
+
+```bash
+python scripts/build_dense_index.py \
+  --benchmark scholargym \
+  --scholargym-paper-db /path/to/scholargym_paper_db.json \
+  --scholargym-benchmark /path/to/scholargym_bench.jsonl \
+  --embedding-model Qwen/Qwen3-Embedding-0.6B \
+  --embedding-api-model /model \
+  --qdrant-url http://localhost:6333 \
+  --collection scholargym-qwen3-embedding-0.6b
+
+python scripts/run_public_bench.py \
+  --benchmark scholargym \
+  --scholargym-paper-db /path/to/scholargym_paper_db.json \
+  --scholargym-benchmark /path/to/scholargym_bench.jsonl \
+  --mode dense --top-k 100 \
+  --embedding-model Qwen/Qwen3-Embedding-0.6B \
+  --embedding-api-model /model \
+  --qdrant-url http://localhost:6333 \
+  --collection scholargym-qwen3-embedding-0.6b
+```
+
+Use `--scholargym-query-limit 200` for a quick smoke run. The full static
+benchmark reports Recall@20/50 and nDCG@10 in the normal result JSON.
+
 The MTEB retrieval adapter is not limited to that shortlist. `--dataset NAME` resolves
 to `mteb/NAME`, and `--dataset-id ORG/NAME` accepts any cached MTEB-format
 dataset directly. This covers the BEIR retrieval datasets hosted under MTEB
@@ -266,9 +311,75 @@ mv results/public/*-dense.json results/public/*-hybrid.json \
 ```
 
 The main overrides are `CACHE_DIR`, `RESULTS_DIR`, `QDRANT_URL`,
-`EMBEDDING_URL`, `EMBEDDING_MODEL`, `EMBEDDING_API_MODEL`, `MODEL_TAG`, and
-`BATCH_SIZE`.
+`EMBEDDING_URL`, `EMBEDDING_MODEL`, `EMBEDDING_API_MODEL`, `QUERY_PREFIX`,
+`PASSAGE_PREFIX`, `MODEL_TAG`, and `BATCH_SIZE`. Set
+`INCLUDE_SCHOLARGYM=1`, `SCHOLARGYM_PAPER_DB`, and
+`SCHOLARGYM_BENCHMARK_JSONL` to append ScholarGym-static to the sweep.
 This suite does not apply query alignment or reranking.
+
+### Swap the vLLM model on g3
+
+On the g3 checkout, start vLLM through the wrapper with the model you want:
+
+```bash
+VLLM_MODEL=Qwen/Qwen3-Embedding-0.6B ./scripts/serve_embedding.sh
+```
+
+The wrapper always advertises the server as `/model`, so the benchmark host
+does not need a server-side model-name change. Point the benchmark run at the
+same checkpoint name so result directories and Qdrant collections stay
+separate:
+
+```bash
+EMBEDDING_MODEL=Qwen/Qwen3-Embedding-0.6B \
+MODEL_TAG=qwen3-embedding-0.6b \
+./scripts/run_all_benchmarks.sh
+```
+
+Keep `EMBEDDING_API_MODEL=/model` (the default). Use a new collection/model
+tag for every checkpoint; vector dimensions and spaces may differ.
+
+### Checkpoint 1 report
+
+After the sparse/dense/hybrid files for the current embedding lineup are in
+`results/public/`, generate the CP1 decision table and LitSearch reference
+deltas with:
+
+```bash
+python scripts/report_checkpoint1.py \
+  --results-dir results/public \
+  --output results/public/checkpoint1.md
+```
+
+The report compares BM25 and every available model/mode on LitSearch R@5/R@20
+and SciFact nDCG@10, includes the SciDocs/NFCorpus/TREC-COVID sanity checks,
+and prints Recall@100 for choosing CP2's candidate depth. The recommended
+winner is provisional until the Qwen3-Embedding-0.6B sweep is present.
+
+To add that sweep later:
+
+```bash
+EMBEDDING_MODEL=Qwen/Qwen3-Embedding-0.6B \
+MODEL_TAG=qwen3-embedding-0.6b \
+./scripts/run_all_benchmarks.sh
+```
+
+### Graph model/pipeline differences
+
+Once `results/public/` contains the benchmark JSON files, make one graph per
+dataset:
+
+```bash
+python -m pip install -e '.[eval]'  # once, if matplotlib is not installed
+python scripts/plot_benchmark_results.py \
+  --results-dir results/public \
+  --output-dir results/plots
+```
+
+This writes one file per discovered dataset, such as `litsearch.png`,
+`mteb-scifact.png`, and `scholargym.png`. Each graph compares every discovered
+model/pipeline, including BM25, dense, and hybrid, using Recall@5/20/50 and
+nDCG@10. Use `--metrics recall@20,recall@50` for a ScholarGym-focused graph.
 
 If an older staging run put `princeton-nlp___lit_search/` directly under
 `hub/`, move that processed dataset cache into `datasets/` before running

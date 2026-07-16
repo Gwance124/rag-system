@@ -1,6 +1,7 @@
 import json
 import math
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 from retrieval.benchmarks import (
@@ -9,6 +10,7 @@ from retrieval.benchmarks import (
     load_jsonl_benchmark,
     load_litsearch_hf,
     load_mteb_hf,
+    load_scholargym_benchmark,
     mteb_dataset_id,
 )
 from retrieval.dense import QdrantIndex
@@ -17,6 +19,10 @@ from retrieval.metrics import evaluate_litsearch_comparison, evaluate_run, ndcg_
 from retrieval.pipeline import HybridRetriever
 from retrieval.sparse import BM25Index
 from retrieval.types import Document, RetrievalConfig, SearchHit
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+from report_checkpoint1 import build_report, to_markdown
+from plot_benchmark_results import load_results
 
 
 def test_bm25_prefers_matching_document():
@@ -109,6 +115,71 @@ def test_jsonl_benchmark_keeps_exclusions_and_qrels(tmp_path):
     assert benchmark.queries == {"q1": "find it"}
     assert benchmark.qrels == {"q1": {"d1"}}
     assert benchmark.excluded_ids == {"q1": {"d2"}}
+
+
+def test_scholargym_loader_reads_released_and_readme_schemas(tmp_path):
+    paper_db = tmp_path / "scholargym_paper_db.json"
+    paper_db.write_text(json.dumps({
+        "2101.00001v2": {"title": "Paper", "abstract": "Abstract", "year": 2021},
+        "2101.00002": {"title": "Other", "abstract": "Text"},
+    }))
+    benchmark = tmp_path / "scholargym_bench.jsonl"
+    benchmark.write_text("\n".join([
+        json.dumps({
+            "qid": "q1",
+            "query": "find paper",
+            "cited_paper": [{"arxiv_id": "arxiv:2101.00001"}, {"arxiv_id": "2101.00002"}],
+            "gt_label": [1, "0"],
+            "source": "PASA_AutoScholar",
+        }),
+        json.dumps({"query_id": "q2", "query": "readme schema", "gt_arxiv_ids": ["2101.00002"]}),
+    ]) + "\n")
+
+    loaded = load_scholargym_benchmark(paper_db, benchmark)
+    assert {document.doc_id for document in loaded.documents} == {"2101.00001", "2101.00002"}
+    assert loaded.queries == {"q1": "find paper", "q2": "readme schema"}
+    assert loaded.qrels == {"q1": {"2101.00001"}, "q2": {"2101.00002"}}
+    assert loaded.query_metadata["q1"]["source"] == "PASA_AutoScholar"
+
+
+def test_checkpoint1_report_selects_litsearch_first(tmp_path):
+    root = tmp_path / "results" / "public"
+    sparse = root / "sparse"
+    model = root / "qwen3-embedding-4b"
+    sparse.mkdir(parents=True)
+    model.mkdir()
+
+    def write(path, metrics, comparison=None):
+        path.write_text(json.dumps({"metrics": metrics, **({"litsearch_paper_comparison": comparison} if comparison else {})}))
+
+    write(sparse / "litsearch-sparse.json", {"recall@5": 0.3, "recall@20": 0.4, "recall@100": 0.7})
+    write(sparse / "mteb-scifact-sparse.json", {"ndcg@10": 0.2, "recall@100": 0.8})
+    write(model / "litsearch-dense.json", {"recall@5": 0.5, "recall@20": 0.6, "recall@100": 0.9}, {
+        "delta_vs_paper_bm25": {"average": {"specific": {"recall@5": 0.1}}}
+    })
+    write(model / "mteb-scifact-dense.json", {"ndcg@10": 0.1, "recall@100": 0.9})
+
+    report = build_report(root)
+    assert report["winner_by_litsearch"] == "qwen3-embedding-4b / dense"
+    assert "LitSearch R@5" in to_markdown(report)
+
+
+def test_plotter_groups_results_by_dataset_and_model_pipeline(tmp_path):
+    root = tmp_path / "results" / "public"
+    (root / "sparse").mkdir(parents=True)
+    (root / "qwen3-embedding-4b").mkdir()
+    (root / "sparse" / "litsearch-sparse.json").write_text(json.dumps({
+        "config": {"benchmark": "litsearch", "mode": "sparse"},
+        "metrics": {"recall@20": 0.4},
+    }))
+    (root / "qwen3-embedding-4b" / "mteb-scifact-dense.json").write_text(json.dumps({
+        "config": {"benchmark": "mteb", "dataset": "scifact", "mode": "dense", "embedding_model": "Qwen/Qwen3-Embedding-4B"},
+        "metrics": {"ndcg@10": 0.5},
+    }))
+
+    results = load_results(root)
+    assert [row["label"] for row in results["litsearch"]] == ["BM25 / sparse"]
+    assert results["mteb-scifact"][0]["label"] == "Qwen3-Embedding-4B / dense"
 
 
 def test_bright_loader_is_strictly_local(monkeypatch, tmp_path):

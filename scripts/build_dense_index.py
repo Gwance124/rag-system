@@ -13,6 +13,7 @@ from retrieval.benchmarks import (
     load_bright_hf,
     load_litsearch_hf,
     load_mteb_hf,
+    load_scholargym_benchmark,
     mteb_dataset_id,
 )
 from retrieval.dense import QdrantIndex, VllmEmbeddingClient
@@ -23,7 +24,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Build a Qdrant dense index from the local HF cache or JSONL.")
     parser.add_argument(
         "--benchmark",
-        choices=("bright", "litsearch", "mteb", "beir", "jsonl"),
+        choices=("bright", "litsearch", "mteb", "beir", "scholargym", "jsonl"),
         default="litsearch",
         help="benchmark family; beir is a backward-compatible alias for mteb",
     )
@@ -34,6 +35,8 @@ def main() -> None:
     parser.add_argument("--long-documents", action="store_true")
     parser.add_argument("--cache-dir", help="Hugging Face root containing hub/ and datasets/")
     parser.add_argument("--documents", help="JSONL documents for --benchmark jsonl")
+    parser.add_argument("--scholargym-paper-db", help="ScholarGym scholargym_paper_db.json")
+    parser.add_argument("--scholargym-benchmark", help="ScholarGym scholargym_bench.jsonl")
     parser.add_argument("--qdrant-url", required=True)
     parser.add_argument("--collection", required=True, help="Unique name for this corpus and embedding model")
     parser.add_argument("--embedding-url", default="http://192.168.3.4:8000/v1")
@@ -61,6 +64,13 @@ def main() -> None:
     elif is_mteb:
         dataset_id = args.dataset_id or mteb_dataset_id(args.dataset)
         documents = load_mteb_hf(dataset_id, split=args.split, cache_dir=args.cache_dir).documents
+    elif args.benchmark == "scholargym":
+        if not args.scholargym_paper_db or not args.scholargym_benchmark:
+            parser.error("ScholarGym requires --scholargym-paper-db and --scholargym-benchmark")
+        documents = load_scholargym_benchmark(
+            args.scholargym_paper_db,
+            args.scholargym_benchmark,
+        ).documents
     else:
         if not args.documents:
             parser.error("jsonl indexing requires --documents")

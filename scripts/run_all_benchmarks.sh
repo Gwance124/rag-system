@@ -8,13 +8,18 @@ QDRANT_URL="${QDRANT_URL:-http://localhost:6333}"
 EMBEDDING_URL="${EMBEDDING_URL:-http://192.168.3.4:8000/v1}"
 EMBEDDING_MODEL="${EMBEDDING_MODEL:-nvidia/llama-nv-embed-reasoning-3b}"
 EMBEDDING_API_MODEL="${EMBEDDING_API_MODEL:-/model}"
+QUERY_PREFIX="${QUERY_PREFIX:-query: }"
+PASSAGE_PREFIX="${PASSAGE_PREFIX:-passage: }"
 MODEL_TAG="${MODEL_TAG:-${EMBEDDING_MODEL##*/}}"
 COLLECTION_TAG="${COLLECTION_TAG:-$MODEL_TAG}"
 LITSEARCH_COLLECTION="${LITSEARCH_COLLECTION:-}"
-BATCH_SIZE="${BATCH_SIZE:-64}"
+BATCH_SIZE="${BATCH_SIZE:-128}"
 BUILD_INDEXES="${BUILD_INDEXES:-1}"
 REBUILD_INDEXES="${REBUILD_INDEXES:-0}"
 FORCE_RERUN="${FORCE_RERUN:-0}"
+INCLUDE_SCHOLARGYM="${INCLUDE_SCHOLARGYM:-0}"
+SCHOLARGYM_PAPER_DB="${SCHOLARGYM_PAPER_DB:-}"
+SCHOLARGYM_BENCHMARK_JSONL="${SCHOLARGYM_BENCHMARK_JSONL:-}"
 PYTHON_BIN="${PYTHON_BIN:-python}"
 
 benchmarks=(
@@ -24,6 +29,14 @@ benchmarks=(
   "mteb:nfcorpus"
   "mteb:trec-covid"
 )
+
+if [[ "$INCLUDE_SCHOLARGYM" == "1" ]]; then
+  if [[ -z "$SCHOLARGYM_PAPER_DB" || -z "$SCHOLARGYM_BENCHMARK_JSONL" ]]; then
+    echo "INCLUDE_SCHOLARGYM=1 requires SCHOLARGYM_PAPER_DB and SCHOLARGYM_BENCHMARK_JSONL" >&2
+    exit 2
+  fi
+  benchmarks+=("scholargym:")
+fi
 
 SPARSE_RESULTS_DIR="$RESULTS_DIR/sparse"
 MODEL_RESULTS_DIR="$RESULTS_DIR/$MODEL_TAG"
@@ -39,6 +52,12 @@ for spec in "${benchmarks[@]}"; do
   benchmark_args=(--benchmark "$benchmark" --cache-dir "$CACHE_DIR")
   if [[ -n "$dataset" ]]; then
     benchmark_args+=(--dataset "$dataset")
+  fi
+  if [[ "$benchmark" == "scholargym" ]]; then
+    benchmark_args+=(
+      --scholargym-paper-db "$SCHOLARGYM_PAPER_DB"
+      --scholargym-benchmark "$SCHOLARGYM_BENCHMARK_JSONL"
+    )
   fi
 
   needs_dense_index=0
@@ -56,6 +75,8 @@ for spec in "${benchmarks[@]}"; do
         --embedding-url "$EMBEDDING_URL" \
         --embedding-model "$EMBEDDING_MODEL" \
         --embedding-api-model "$EMBEDDING_API_MODEL" \
+        --query-prefix "$QUERY_PREFIX" \
+        --passage-prefix "$PASSAGE_PREFIX" \
         --qdrant-url "$QDRANT_URL" \
         --collection "$collection" \
         --batch-size "$BATCH_SIZE"
@@ -79,6 +100,8 @@ for spec in "${benchmarks[@]}"; do
       --embedding-url "$EMBEDDING_URL" \
       --embedding-model "$EMBEDDING_MODEL" \
       --embedding-api-model "$EMBEDDING_API_MODEL" \
+      --query-prefix "$QUERY_PREFIX" \
+      --passage-prefix "$PASSAGE_PREFIX" \
       --qdrant-url "$QDRANT_URL" \
       --collection "$collection" \
       > "$result_file"

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -87,6 +88,105 @@ def load_jsonl_benchmark(
     for row in _records(qrels_path):
         qrels.setdefault(str(row["query_id"]), set()).add(str(row["doc_id"]))
     return Benchmark(documents, queries, qrels, excluded_ids)
+
+
+def _scholargym_id(value) -> str:
+    """Use the version-free arXiv ID used by both ScholarGym files."""
+    value = str(value).strip()
+    if value.lower().startswith("arxiv:"):
+        value = value[6:]
+    value = value.rsplit("/", 1)[-1]
+    return re.sub(r"v\d+$", "", value)
+
+
+def _scholargym_papers(path: str | Path):
+    with open(path) as handle:
+        data = json.load(handle)
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        for key in ("papers", "documents", "data"):
+            if isinstance(data.get(key), list):
+                return data[key]
+        # The released paper DB is a mapping from arXiv ID to metadata.
+        return [dict(row, arxiv_id=row.get("arxiv_id", paper_id)) for paper_id, row in data.items() if isinstance(row, dict)]
+    raise ValueError(f"unsupported ScholarGym paper DB format: {path}")
+
+
+def _scholargym_positive_ids(row: dict) -> set[str]:
+    if "gt_arxiv_ids" in row:
+        return {_scholargym_id(value) for value in row["gt_arxiv_ids"]}
+    cited = row.get("cited_paper", [])
+    labels = row.get("gt_label")
+    if labels is None:
+        labels = [1] * len(cited)
+
+    def positive(label) -> bool:
+        return label.strip().lower() not in {"", "0", "false", "no"} if isinstance(label, str) else bool(label)
+
+    return {
+        _scholargym_id(paper["arxiv_id"] if isinstance(paper, dict) else paper)
+        for paper, label in zip(cited, labels)
+        if positive(label)
+    }
+
+
+def load_scholargym_benchmark(
+    paper_db_path: str | Path,
+    benchmark_path: str | Path,
+    *,
+    query_limit: int | None = None,
+) -> Benchmark:
+    """Load ScholarGym's released files for the ScholarGym-static extension.
+
+    This is intentionally single-shot title+abstract retrieval. It does not
+    implement ScholarGym's agent workflow or its iterative selection metrics.
+    """
+    documents = []
+    for row in _scholargym_papers(paper_db_path):
+        paper_id = row.get("arxiv_id", row.get("id", row.get("_id")))
+        if paper_id is None:
+            continue
+        paper_id = _scholargym_id(paper_id)
+        title = str(row.get("title") or "")
+        abstract = str(row.get("abstract") or row.get("summary") or "")
+        documents.append(
+            Document(
+                paper_id,
+                f"{title} {abstract}".strip(),
+                paper_id,
+                {key: row[key] for key in ("authors", "published", "year", "categories", "url") if key in row},
+            )
+        )
+
+    queries = {}
+    qrels: dict[str, set[str]] = {}
+    query_metadata = {}
+    for row in _records(benchmark_path):
+        if row.get("valid") is False:
+            continue
+        query_id = str(row.get("query_id", row.get("qid")))
+        if query_id == "None":
+            continue
+        positives = _scholargym_positive_ids(row)
+        if not positives:
+            continue
+        queries[query_id] = str(row.get("query", ""))
+        qrels[query_id] = positives
+        query_metadata[query_id] = {
+            key: row[key]
+            for key in ("source", "split", "date", "date_constraint")
+            if key in row
+        }
+        if query_limit is not None and len(queries) >= query_limit:
+            break
+    return Benchmark(
+        documents,
+        queries,
+        qrels,
+        {query_id: set() for query_id in queries},
+        query_metadata,
+    )
 
 
 def load_bright_hf(

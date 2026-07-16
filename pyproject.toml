@@ -6,7 +6,7 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
-eval = ["datasets>=2.19"]
+eval = ["datasets>=2.19", "matplotlib>=3.8"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "latex-parser/tests"]
