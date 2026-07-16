@@ -314,6 +314,15 @@ the end. Full stderr logs and the last error output are saved under
 1 after completing if any failure occurred; use `|| true` if a surrounding job
 must ignore that final status.
 
+Progress for the active run is written to the model-specific log. For example:
+
+```bash
+tail -f results/public/failures/Yuan-embedding-2.0-en/scholargym-sparse.log
+```
+
+The log reports BM25 documents indexed and queries evaluated. The current run
+must be started after this progress change to contain those updates.
+
 `MODEL_TAG` overrides the model result-directory name when comparing another
 configuration of the same checkpoint.
 

@@ -6,7 +6,7 @@ CACHE_DIR="${CACHE_DIR:-/mnt/nvme2/labuser/.cache/huggingface}"
 RESULTS_DIR="${RESULTS_DIR:-$ROOT_DIR/results/public}"
 QDRANT_URL="${QDRANT_URL:-http://localhost:6333}"
 EMBEDDING_URL="${EMBEDDING_URL:-http://192.168.3.4:8000/v1}"
-EMBEDDING_API_MODEL="${EMBEDDING_API_MODEL:-/model}"
+EMBEDDING_API_MODEL="${EMBEDDING_API_MODEL:-}"
 QUERY_PREFIX="${QUERY_PREFIX:-query: }"
 PASSAGE_PREFIX="${PASSAGE_PREFIX:-passage: }"
 LITSEARCH_COLLECTION="${LITSEARCH_COLLECTION:-}"
@@ -42,8 +42,10 @@ print(models[0]["id"])
     exit 2
   fi
   EMBEDDING_MODEL="$detected_model"
+  EMBEDDING_API_MODEL="${EMBEDDING_API_MODEL:-$detected_model}"
 else
   EMBEDDING_MODEL="${EMBEDDING_MODEL:-nvidia/llama-nv-embed-reasoning-3b}"
+  EMBEDDING_API_MODEL="${EMBEDDING_API_MODEL:-$EMBEDDING_MODEL}"
 fi
 
 MODEL_TAG="${MODEL_TAG:-${EMBEDDING_MODEL##*/}}"

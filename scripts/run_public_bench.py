@@ -102,7 +102,17 @@ def main() -> None:
             parser.error("jsonl benchmarks require --documents, --queries, and --qrels")
         benchmark = load_jsonl_benchmark(args.documents, args.queries, args.qrels)
 
-    sparse_index = BM25Index(benchmark.documents) if args.mode in ("sparse", "hybrid") else None
+    def report_progress(done: int, total: int, stage: str) -> None:
+        print(f"[{args.benchmark}/{args.mode}] {stage}: {done}/{total}", file=sys.stderr, flush=True)
+
+    sparse_index = (
+        BM25Index(
+            benchmark.documents,
+            progress=lambda done, total: report_progress(done, total, "BM25 documents"),
+        )
+        if args.mode in ("sparse", "hybrid")
+        else None
+    )
     dense_index = None
     if args.mode in ("dense", "hybrid"):
         if not args.qdrant_url or not args.collection:
@@ -130,10 +140,13 @@ def main() -> None:
 
     run = {}
     timings = []
-    for query_id, query in benchmark.queries.items():
+    total_queries = len(benchmark.queries)
+    for query_number, (query_id, query) in enumerate(benchmark.queries.items(), 1):
         result = retriever.search(query, benchmark.excluded_ids.get(query_id, ()))
         run[query_id] = [hit.doc_id for hit in result.hits]
         timings.append(result.timings_ms)
+        if query_number % 25 == 0 or query_number == total_queries:
+            report_progress(query_number, total_queries, "queries")
 
     output = {
         "config": {

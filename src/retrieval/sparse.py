@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import math
 import re
-from collections import Counter, defaultdict
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
+
+import bm25s
+from bm25s.tokenization import Tokenizer
 
 from retrieval.types import Document, SearchHit
 
@@ -22,49 +23,44 @@ class BM25Index:
         documents: Iterable[Document],
         k1: float = 1.2,
         b: float = 0.75,
+        progress: Callable[[int, int], None] | None = None,
     ) -> None:
         self.documents = list(documents)
-        self.k1 = k1
-        self.b = b
-        self._postings: dict[str, dict[int, int]] = defaultdict(dict)
-        self._lengths: list[int] = []
-
-        for index, document in enumerate(self.documents):
-            counts = Counter(tokenize(document.text))
-            self._lengths.append(sum(counts.values()))
-            for term, frequency in counts.items():
-                self._postings[term][index] = frequency
-
-        self._avgdl = sum(self._lengths) / len(self._lengths) if self._lengths else 0.0
-        size = len(self.documents)
-        self._idf = {
-            term: math.log(1 + (size - len(postings) + 0.5) / (len(postings) + 0.5))
-            for term, postings in self._postings.items()
-        }
+        self._tokenizer = Tokenizer(splitter=_TOKEN_RE.pattern, stopwords=[])
+        self._retriever = bm25s.BM25(k1=k1, b=b, method="lucene")
+        if self.documents:
+            show_progress = progress is not None
+            corpus_tokens = self._tokenizer.tokenize(
+                [document.text for document in self.documents],
+                show_progress=show_progress,
+                leave_progress=show_progress,
+            )
+            self._retriever.index(
+                corpus_tokens,
+                show_progress=show_progress,
+                leave_progress=show_progress,
+            )
+            if progress:
+                progress(len(self.documents), len(self.documents))
 
     def search(self, query: str, top_n: int = 100) -> list[SearchHit]:
         if not self.documents or top_n <= 0:
             return []
 
-        scores: dict[int, float] = defaultdict(float)
-        for term in tokenize(query):
-            postings = self._postings.get(term)
-            if not postings:
-                continue
-            idf = self._idf[term]
-            for index, frequency in postings.items():
-                length = self._lengths[index]
-                denominator = frequency + self.k1 * (
-                    1 - self.b + self.b * length / self._avgdl
-                )
-                scores[index] += idf * frequency * (self.k1 + 1) / denominator
-
-        ranked = sorted(scores.items(), key=lambda item: (-item[1], item[0]))
+        query_tokens = self._tokenizer.tokenize(
+            [query], update_vocab=False, show_progress=False
+        )
+        indices, scores = self._retriever.retrieve(
+            query_tokens,
+            k=min(top_n, len(self.documents)),
+            show_progress=False,
+        )
         return [
             SearchHit(
                 doc_id=self.documents[index].doc_id,
-                score=score,
+                score=float(score),
                 paper_id=self.documents[index].paper_id,
             )
-            for index, score in ranked[:top_n]
+            for index, score in zip(indices[0], scores[0])
+            if score > 0
         ]

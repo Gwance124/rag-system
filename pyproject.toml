@@ -2,7 +2,7 @@
 name = "rag-system-retrieval"
 version = "0.1.0"
 requires-python = ">=3.10"
-dependencies = []
+dependencies = ["bm25s>=0.3,<0.4"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
