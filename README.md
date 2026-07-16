@@ -334,6 +334,10 @@ The main overrides are `CACHE_DIR`, `RESULTS_DIR`, `QDRANT_URL`,
 `$CACHE_DIR/datasets/datasets--shenhao--ScholarGym` by default; override that with
 `SCHOLARGYM_DIR`, or use the two explicit file variables
 `SCHOLARGYM_PAPER_DB` and `SCHOLARGYM_BENCHMARK_JSONL` when needed.
+By default, the script first queries `$EMBEDDING_URL/models` and uses the
+returned `data[0].id` as `EMBEDDING_MODEL`, so the result directory and Qdrant
+collection match the model currently served by vLLM. Set `AUTO_DETECT_MODEL=0`
+to use an explicit `EMBEDDING_MODEL` instead.
 This suite does not apply query alignment or reranking.
 
 ### Swap the vLLM model on g3

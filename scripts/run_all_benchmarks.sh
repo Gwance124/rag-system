@@ -6,12 +6,9 @@ CACHE_DIR="${CACHE_DIR:-/mnt/nvme2/labuser/.cache/huggingface}"
 RESULTS_DIR="${RESULTS_DIR:-$ROOT_DIR/results/public}"
 QDRANT_URL="${QDRANT_URL:-http://localhost:6333}"
 EMBEDDING_URL="${EMBEDDING_URL:-http://192.168.3.4:8000/v1}"
-EMBEDDING_MODEL="${EMBEDDING_MODEL:-nvidia/llama-nv-embed-reasoning-3b}"
 EMBEDDING_API_MODEL="${EMBEDDING_API_MODEL:-/model}"
 QUERY_PREFIX="${QUERY_PREFIX:-query: }"
 PASSAGE_PREFIX="${PASSAGE_PREFIX:-passage: }"
-MODEL_TAG="${MODEL_TAG:-${EMBEDDING_MODEL##*/}}"
-COLLECTION_TAG="${COLLECTION_TAG:-$MODEL_TAG}"
 LITSEARCH_COLLECTION="${LITSEARCH_COLLECTION:-}"
 BATCH_SIZE="${BATCH_SIZE:-128}"
 BUILD_INDEXES="${BUILD_INDEXES:-1}"
@@ -22,6 +19,35 @@ SCHOLARGYM_DIR="${SCHOLARGYM_DIR:-$CACHE_DIR/datasets/datasets--shenhao--Scholar
 SCHOLARGYM_PAPER_DB="${SCHOLARGYM_PAPER_DB:-}"
 SCHOLARGYM_BENCHMARK_JSONL="${SCHOLARGYM_BENCHMARK_JSONL:-}"
 PYTHON_BIN="${PYTHON_BIN:-python}"
+AUTO_DETECT_MODEL="${AUTO_DETECT_MODEL:-1}"
+
+if [[ "$AUTO_DETECT_MODEL" == "1" ]]; then
+  models_url="${EMBEDDING_URL%/}/models"
+  echo "Detecting embedding model from $models_url" >&2
+  if ! model_response="$(curl -fsS "$models_url")"; then
+    echo "Could not query the embedding model endpoint: $models_url" >&2
+    exit 2
+  fi
+  if ! detected_model="$(printf '%s' "$model_response" | "$PYTHON_BIN" -c '
+import json
+import sys
+
+payload = json.load(sys.stdin)
+models = payload.get("data", [])
+if not models or not models[0].get("id"):
+    raise SystemExit("/models response did not contain data[0].id")
+print(models[0]["id"])
+')"; then
+    echo "Could not parse the embedding model response from $models_url" >&2
+    exit 2
+  fi
+  EMBEDDING_MODEL="$detected_model"
+else
+  EMBEDDING_MODEL="${EMBEDDING_MODEL:-nvidia/llama-nv-embed-reasoning-3b}"
+fi
+
+MODEL_TAG="${MODEL_TAG:-${EMBEDDING_MODEL##*/}}"
+COLLECTION_TAG="${COLLECTION_TAG:-$MODEL_TAG}"
 FAILURES_DIR="${FAILURES_DIR:-$RESULTS_DIR/failures/$MODEL_TAG}"
 FAILURE_SUMMARY="$FAILURES_DIR/summary.txt"
 failure_records=()
