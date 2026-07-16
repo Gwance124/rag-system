@@ -18,6 +18,7 @@ BUILD_INDEXES="${BUILD_INDEXES:-1}"
 REBUILD_INDEXES="${REBUILD_INDEXES:-0}"
 FORCE_RERUN="${FORCE_RERUN:-0}"
 INCLUDE_SCHOLARGYM="${INCLUDE_SCHOLARGYM:-0}"
+SCHOLARGYM_DIR="${SCHOLARGYM_DIR:-$CACHE_DIR/datasets/datasets--shenhao--ScholarGym}"
 SCHOLARGYM_PAPER_DB="${SCHOLARGYM_PAPER_DB:-}"
 SCHOLARGYM_BENCHMARK_JSONL="${SCHOLARGYM_BENCHMARK_JSONL:-}"
 PYTHON_BIN="${PYTHON_BIN:-python}"
@@ -31,10 +32,6 @@ benchmarks=(
 )
 
 if [[ "$INCLUDE_SCHOLARGYM" == "1" ]]; then
-  if [[ -z "$SCHOLARGYM_PAPER_DB" || -z "$SCHOLARGYM_BENCHMARK_JSONL" ]]; then
-    echo "INCLUDE_SCHOLARGYM=1 requires SCHOLARGYM_PAPER_DB and SCHOLARGYM_BENCHMARK_JSONL" >&2
-    exit 2
-  fi
   benchmarks+=("scholargym:")
 fi
 
@@ -54,10 +51,9 @@ for spec in "${benchmarks[@]}"; do
     benchmark_args+=(--dataset "$dataset")
   fi
   if [[ "$benchmark" == "scholargym" ]]; then
-    benchmark_args+=(
-      --scholargym-paper-db "$SCHOLARGYM_PAPER_DB"
-      --scholargym-benchmark "$SCHOLARGYM_BENCHMARK_JSONL"
-    )
+    benchmark_args+=(--scholargym-dir "$SCHOLARGYM_DIR")
+    [[ -n "$SCHOLARGYM_PAPER_DB" ]] && benchmark_args+=(--scholargym-paper-db "$SCHOLARGYM_PAPER_DB")
+    [[ -n "$SCHOLARGYM_BENCHMARK_JSONL" ]] && benchmark_args+=(--scholargym-benchmark "$SCHOLARGYM_BENCHMARK_JSONL")
   fi
 
   needs_dense_index=0

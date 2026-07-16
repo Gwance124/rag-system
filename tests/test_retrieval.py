@@ -12,6 +12,7 @@ from retrieval.benchmarks import (
     load_mteb_hf,
     load_scholargym_benchmark,
     mteb_dataset_id,
+    scholargym_paths,
 )
 from retrieval.dense import QdrantIndex
 from retrieval.fusion import aggregate_to_papers, rrf_fuse
@@ -140,6 +141,27 @@ def test_scholargym_loader_reads_released_and_readme_schemas(tmp_path):
     assert loaded.queries == {"q1": "find paper", "q2": "readme schema"}
     assert loaded.qrels == {"q1": {"2101.00001"}, "q2": {"2101.00002"}}
     assert loaded.query_metadata["q1"]["source"] == "PASA_AutoScholar"
+
+
+def test_scholargym_defaults_to_the_shared_dataset_cache(tmp_path):
+    paper_db, benchmark = scholargym_paths(tmp_path / "huggingface")
+    root = tmp_path / "huggingface" / "datasets" / "datasets--shenhao--ScholarGym"
+    assert paper_db == root / "scholargym_paper_db.json"
+    assert benchmark == root / "scholargym_bench.jsonl"
+
+
+def test_scholargym_resolves_huggingface_snapshot(tmp_path):
+    root = tmp_path / "huggingface" / "datasets" / "datasets--shenhao--ScholarGym"
+    snapshot = root / "snapshots" / "abc123"
+    snapshot.mkdir(parents=True)
+    (root / "refs").mkdir()
+    (root / "refs" / "main").write_text("abc123\n")
+    (snapshot / "scholargym_paper_db.json").write_text("{}")
+    (snapshot / "scholargym_bench.jsonl").write_text("\n")
+
+    paper_db, benchmark = scholargym_paths(dataset_dir=root)
+    assert paper_db == snapshot / "scholargym_paper_db.json"
+    assert benchmark == snapshot / "scholargym_bench.jsonl"
 
 
 def test_checkpoint1_report_selects_litsearch_first(tmp_path):

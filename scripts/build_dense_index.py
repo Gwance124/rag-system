@@ -15,6 +15,7 @@ from retrieval.benchmarks import (
     load_mteb_hf,
     load_scholargym_benchmark,
     mteb_dataset_id,
+    scholargym_paths,
 )
 from retrieval.dense import QdrantIndex, VllmEmbeddingClient
 from retrieval.types import Document
@@ -37,6 +38,7 @@ def main() -> None:
     parser.add_argument("--documents", help="JSONL documents for --benchmark jsonl")
     parser.add_argument("--scholargym-paper-db", help="ScholarGym scholargym_paper_db.json")
     parser.add_argument("--scholargym-benchmark", help="ScholarGym scholargym_bench.jsonl")
+    parser.add_argument("--scholargym-dir", help="ScholarGym dataset directory; defaults to <cache-dir>/datasets/scholargym")
     parser.add_argument("--qdrant-url", required=True)
     parser.add_argument("--collection", required=True, help="Unique name for this corpus and embedding model")
     parser.add_argument("--embedding-url", default="http://192.168.3.4:8000/v1")
@@ -65,11 +67,20 @@ def main() -> None:
         dataset_id = args.dataset_id or mteb_dataset_id(args.dataset)
         documents = load_mteb_hf(dataset_id, split=args.split, cache_dir=args.cache_dir).documents
     elif args.benchmark == "scholargym":
-        if not args.scholargym_paper_db or not args.scholargym_benchmark:
-            parser.error("ScholarGym requires --scholargym-paper-db and --scholargym-benchmark")
-        documents = load_scholargym_benchmark(
+        paper_db_path, benchmark_path = scholargym_paths(
+            args.cache_dir,
+            args.scholargym_dir,
             args.scholargym_paper_db,
             args.scholargym_benchmark,
+        )
+        if not paper_db_path.is_file() or not benchmark_path.is_file():
+            parser.error(
+                "ScholarGym files not found; expected "
+                f"{paper_db_path} and {benchmark_path}"
+            )
+        documents = load_scholargym_benchmark(
+            paper_db_path,
+            benchmark_path,
         ).documents
     else:
         if not args.documents:

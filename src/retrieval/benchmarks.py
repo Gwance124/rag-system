@@ -17,6 +17,46 @@ def mteb_dataset_id(dataset: str) -> str:
     return dataset if "/" in dataset else f"mteb/{dataset}"
 
 
+def scholargym_paths(
+    cache_dir: str | Path | None = None,
+    dataset_dir: str | Path | None = None,
+    paper_db_path: str | Path | None = None,
+    benchmark_path: str | Path | None = None,
+) -> tuple[Path, Path]:
+    """Resolve ScholarGym files under the shared Hugging Face dataset cache."""
+    if dataset_dir is None:
+        cache_root = Path(cache_dir or os.environ.get("HF_HOME", "~/.cache/huggingface")).expanduser()
+        dataset_dir = cache_root / "datasets" / "datasets--shenhao--ScholarGym"
+    dataset_dir = Path(dataset_dir).expanduser()
+
+    # HF cache repositories use refs/main -> snapshots/<commit>; support the
+    # extracted directory layout as a fallback for manually staged files.
+    snapshot_dir = dataset_dir
+    refs_main = dataset_dir / "refs" / "main"
+    if refs_main.is_file():
+        candidate = dataset_dir / "snapshots" / refs_main.read_text().strip()
+        if candidate.is_dir():
+            snapshot_dir = candidate
+    elif (dataset_dir / "snapshots").is_dir():
+        snapshots = sorted(path for path in (dataset_dir / "snapshots").iterdir() if path.is_dir())
+        if snapshots:
+            snapshot_dir = snapshots[-1]
+
+    def cached_file(name: str, override: str | Path | None) -> Path:
+        if override:
+            return Path(override).expanduser()
+        direct = snapshot_dir / name
+        if direct.is_file():
+            return direct
+        matches = sorted(snapshot_dir.rglob(name))
+        return matches[0] if matches else direct
+
+    return (
+        cached_file("scholargym_paper_db.json", paper_db_path),
+        cached_file("scholargym_bench.jsonl", benchmark_path),
+    )
+
+
 @dataclass(frozen=True)
 class Benchmark:
     documents: list[Document]

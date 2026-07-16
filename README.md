@@ -45,13 +45,25 @@ and `scholargym_paper_db.json` (the title/abstract corpus) in the
 the official agentic ScholarGym evaluation; this runner reports the static
 retriever metrics only.
 
-After downloading those two files, run the fast sparse check with:
+The ScholarGym files should be in the Hugging Face cached repository:
+
+```text
+/mnt/nvme2/labuser/.cache/huggingface/datasets/datasets--shenhao--ScholarGym/
+  blobs/
+  refs/
+  snapshots/<commit>/
+    scholargym_paper_db.json
+    scholargym_bench.jsonl
+```
+
+The runner follows `refs/main` to the correct snapshot automatically.
+
+Then run the fast sparse check with:
 
 ```bash
 python scripts/run_public_bench.py \
   --benchmark scholargym \
-  --scholargym-paper-db /path/to/scholargym_paper_db.json \
-  --scholargym-benchmark /path/to/scholargym_bench.jsonl \
+  --cache-dir /mnt/nvme2/labuser/.cache/huggingface \
   --mode sparse --top-k 100
 ```
 
@@ -61,8 +73,7 @@ prefixes used for the other benchmarks:
 ```bash
 python scripts/build_dense_index.py \
   --benchmark scholargym \
-  --scholargym-paper-db /path/to/scholargym_paper_db.json \
-  --scholargym-benchmark /path/to/scholargym_bench.jsonl \
+  --cache-dir /mnt/nvme2/labuser/.cache/huggingface \
   --embedding-model Qwen/Qwen3-Embedding-0.6B \
   --embedding-api-model /model \
   --qdrant-url http://localhost:6333 \
@@ -70,8 +81,7 @@ python scripts/build_dense_index.py \
 
 python scripts/run_public_bench.py \
   --benchmark scholargym \
-  --scholargym-paper-db /path/to/scholargym_paper_db.json \
-  --scholargym-benchmark /path/to/scholargym_bench.jsonl \
+  --cache-dir /mnt/nvme2/labuser/.cache/huggingface \
   --mode dense --top-k 100 \
   --embedding-model Qwen/Qwen3-Embedding-0.6B \
   --embedding-api-model /model \
@@ -313,8 +323,10 @@ mv results/public/*-dense.json results/public/*-hybrid.json \
 The main overrides are `CACHE_DIR`, `RESULTS_DIR`, `QDRANT_URL`,
 `EMBEDDING_URL`, `EMBEDDING_MODEL`, `EMBEDDING_API_MODEL`, `QUERY_PREFIX`,
 `PASSAGE_PREFIX`, `MODEL_TAG`, and `BATCH_SIZE`. Set
-`INCLUDE_SCHOLARGYM=1`, `SCHOLARGYM_PAPER_DB`, and
-`SCHOLARGYM_BENCHMARK_JSONL` to append ScholarGym-static to the sweep.
+`INCLUDE_SCHOLARGYM=1` to append ScholarGym-static to the sweep. It looks in
+`$CACHE_DIR/datasets/datasets--shenhao--ScholarGym` by default; override that with
+`SCHOLARGYM_DIR`, or use the two explicit file variables
+`SCHOLARGYM_PAPER_DB` and `SCHOLARGYM_BENCHMARK_JSONL` when needed.
 This suite does not apply query alignment or reranking.
 
 ### Swap the vLLM model on g3

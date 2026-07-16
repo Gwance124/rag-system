@@ -16,6 +16,7 @@ from retrieval.benchmarks import (
     load_mteb_hf,
     load_scholargym_benchmark,
     mteb_dataset_id,
+    scholargym_paths,
 )
 from retrieval.dense import QdrantIndex, VllmEmbeddingClient
 from retrieval.metrics import evaluate_litsearch_comparison, evaluate_run
@@ -49,6 +50,7 @@ def main() -> None:
     parser.add_argument("--qrels")
     parser.add_argument("--scholargym-paper-db", help="ScholarGym scholargym_paper_db.json")
     parser.add_argument("--scholargym-benchmark", help="ScholarGym scholargym_bench.jsonl")
+    parser.add_argument("--scholargym-dir", help="ScholarGym dataset directory; defaults to <cache-dir>/datasets/scholargym")
     parser.add_argument("--scholargym-query-limit", type=int)
     parser.add_argument("--top-n", type=int, default=100)
     parser.add_argument("--top-k", type=int, default=100)
@@ -79,11 +81,20 @@ def main() -> None:
         dataset_id = args.dataset_id or mteb_dataset_id(args.dataset)
         benchmark = load_mteb_hf(dataset_id, split=args.split, cache_dir=args.cache_dir)
     elif args.benchmark == "scholargym":
-        if not args.scholargym_paper_db or not args.scholargym_benchmark:
-            parser.error("ScholarGym requires --scholargym-paper-db and --scholargym-benchmark")
-        benchmark = load_scholargym_benchmark(
+        paper_db_path, benchmark_path = scholargym_paths(
+            args.cache_dir,
+            args.scholargym_dir,
             args.scholargym_paper_db,
             args.scholargym_benchmark,
+        )
+        if not paper_db_path.is_file() or not benchmark_path.is_file():
+            parser.error(
+                "ScholarGym files not found; expected "
+                f"{paper_db_path} and {benchmark_path}"
+            )
+        benchmark = load_scholargym_benchmark(
+            paper_db_path,
+            benchmark_path,
             query_limit=args.scholargym_query_limit,
         )
     else:
@@ -132,8 +143,8 @@ def main() -> None:
             "domain": args.domain if args.benchmark == "bright" else None,
             "split": args.split if is_mteb else None,
             "custom_extension": args.benchmark == "scholargym",
-            "scholargym_paper_db": args.scholargym_paper_db if args.benchmark == "scholargym" else None,
-            "scholargym_benchmark": args.scholargym_benchmark if args.benchmark == "scholargym" else None,
+            "scholargym_paper_db": str(paper_db_path) if args.benchmark == "scholargym" else None,
+            "scholargym_benchmark": str(benchmark_path) if args.benchmark == "scholargym" else None,
             "scholargym_query_limit": args.scholargym_query_limit if args.benchmark == "scholargym" else None,
             "mode": args.mode,
             "embedding_model": args.embedding_model if args.mode in ("dense", "hybrid") else None,
