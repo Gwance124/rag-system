@@ -307,6 +307,13 @@ to overwrite them without rebuilding collections with:
 FORCE_RERUN=1 ./scripts/run_all_benchmarks.sh
 ```
 
+Individual benchmark/index errors do not stop the sweep. The script continues
+with the remaining datasets and modes, then prints the failed configurations at
+the end. Full stderr logs and the last error output are saved under
+`results/public/failures/<MODEL_TAG>/summary.txt`. The script exits with status
+1 after completing if any failure occurred; use `|| true` if a surrounding job
+must ignore that final status.
+
 `MODEL_TAG` overrides the model result-directory name when comparing another
 configuration of the same checkpoint.
 
