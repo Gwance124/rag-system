@@ -105,6 +105,25 @@ def test_dense_index_applies_model_specific_query_prefix():
     assert embedder.texts == ["Instruct: retrieve papers\nQuery: find papers"]
 
 
+def test_dense_index_reports_upsert_progress():
+    class Embedder:
+        passage_prefix = ""
+        timeout = 1
+
+        def embed(self, texts):
+            return [[1.0] for _ in texts]
+
+    index = QdrantIndex("test", Embedder(), "http://localhost:6333")
+    index._request = lambda *args, **kwargs: {}
+    progress = []
+    index.create(
+        [Document(str(i), "text") for i in range(3)],
+        batch_size=2,
+        progress=lambda done, total: progress.append((done, total)),
+    )
+    assert progress == [(2, 3), (3, 3)]
+
+
 def test_jsonl_benchmark_keeps_exclusions_and_qrels(tmp_path):
     documents = tmp_path / "documents.jsonl"
     queries = tmp_path / "queries.jsonl"

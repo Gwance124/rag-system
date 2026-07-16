@@ -105,6 +105,12 @@ def main() -> None:
     def report_progress(done: int, total: int, stage: str) -> None:
         print(f"[{args.benchmark}/{args.mode}] {stage}: {done}/{total}", file=sys.stderr, flush=True)
 
+    print(
+        f"[{args.benchmark}/{args.mode}] loaded {len(benchmark.documents)} documents "
+        f"and {len(benchmark.queries)} queries",
+        file=sys.stderr,
+        flush=True,
+    )
     sparse_index = (
         BM25Index(
             benchmark.documents,

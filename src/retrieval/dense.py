@@ -4,7 +4,7 @@ import json
 from urllib.error import HTTPError
 import urllib.request
 import uuid
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 
 from retrieval.types import Document, SearchHit
 
@@ -58,7 +58,12 @@ class QdrantIndex:
         with urllib.request.urlopen(request, timeout=self.embedder.timeout) as response:
             return json.load(response)
 
-    def create(self, documents: Iterable[Document], batch_size: int = 32) -> None:
+    def create(
+        self,
+        documents: Iterable[Document],
+        batch_size: int = 32,
+        progress: Callable[[int, int], None] | None = None,
+    ) -> None:
         documents = list(documents)
         if not documents:
             return
@@ -95,6 +100,8 @@ class QdrantIndex:
                     ]
                 },
             )
+            if progress:
+                progress(min(start + len(batch), len(documents)), len(documents))
 
     def embed_query(self, query: str) -> list[float]:
         return self.embedder.embed([self.embedder.query_prefix + query])[0]

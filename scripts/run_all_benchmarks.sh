@@ -130,7 +130,7 @@ for spec in "${benchmarks[@]}"; do
           --passage-prefix "$PASSAGE_PREFIX" \
           --qdrant-url "$QDRANT_URL" \
           --collection "$collection" \
-          --batch-size "$BATCH_SIZE" >"$index_log" 2>&1; then
+          --batch-size "$BATCH_SIZE" > >(tee "$index_log" >&2) 2>&1; then
         :
       else
         status=$?
@@ -166,7 +166,7 @@ for spec in "${benchmarks[@]}"; do
         --passage-prefix "$PASSAGE_PREFIX" \
         --qdrant-url "$QDRANT_URL" \
         --collection "$collection" \
-        >"$temporary_result" 2>"$result_log"; then
+        >"$temporary_result" 2> >(tee "$result_log" >&2); then
       mv "$temporary_result" "$result_file"
     else
       status=$?

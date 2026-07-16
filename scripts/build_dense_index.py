@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -108,7 +109,30 @@ def main() -> None:
         ),
         args.qdrant_url,
     )
-    index.create(documents, batch_size=args.batch_size)
+    print(
+        f"[{args.benchmark}/dense-index] loaded {len(documents)} documents",
+        file=sys.stderr,
+        flush=True,
+    )
+    started = last_report = time.monotonic()
+
+    def report_progress(done: int, total: int) -> None:
+        nonlocal last_report
+        now = time.monotonic()
+        if done < total and now - last_report < 10:
+            return
+        elapsed = max(now - started, 0.001)
+        rate = done / elapsed
+        eta = (total - done) / rate if rate else 0
+        print(
+            f"[{args.benchmark}/dense-index] embedded+upserted {done}/{total} "
+            f"({100 * done / total:.1f}%, {rate:.1f} docs/s, ETA {eta / 60:.1f} min)",
+            file=sys.stderr,
+            flush=True,
+        )
+        last_report = now
+
+    index.create(documents, batch_size=args.batch_size, progress=report_progress)
     print(f"Indexed {len(documents)} documents into {args.collection}")
 
 
