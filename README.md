@@ -142,13 +142,19 @@ for config in (
 ):
     load_dataset("mteb/QASPER", config, split="test", cache_dir="<hf-cache>/datasets")
 
-load_dataset(
-    "allenai/qasper",
-    "qasper",
-    split="train+validation+test",
-    cache_dir="<hf-cache>/datasets",
-)
 ```
+
+The `allenai/qasper` main branch contains a legacy Python loader whose data
+URLs point to AllenAI S3. On a host where S3 is blocked, stage Hugging Face's
+converted Parquet files instead (about 26 MB total):
+
+```bash
+./scripts/download_qasper_parquet.sh <hf-cache>/qasper-parquet
+```
+
+Copy that directory to the offline machine. The default loader finds
+`<hf-cache>/qasper-parquet` automatically; for another location, pass
+`--qasper-raw-dataset-id PATH` or set `QASPER_RAW_DATASET_ID=PATH`.
 
 Build one chunk collection shared by all conditions and one small paper
 collection for two-stage retrieval:
@@ -453,7 +459,9 @@ Set `QASPER_RAW_DATASET_ID` if the raw `allenai/qasper` title+abstract dataset
 is staged under a different local dataset ID or path. By default, the loader
 checks both `$CACHE_DIR/datasets/datasets--allenai--qasper` and
 `$CACHE_DIR/hub/datasets--allenai--qasper`, then resolves `refs/main` to its
-`snapshots/<commit-hash>` directory before loading offline.
+`snapshots/<commit-hash>` directory before loading offline. A main-branch
+snapshot containing only `qasper.py` is not sufficient; use the converted
+Parquet staging command above.
 
 All conditions reuse the same QASPER chunk collection. Two-stage additionally
 builds a small `qasper-papers-<model>` title+abstract collection. Set

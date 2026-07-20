@@ -17,6 +17,7 @@ from retrieval.benchmarks import (
     load_mteb_hf,
     load_qasper_hf,
     load_qasper_paper_benchmark_hf,
+    load_qasper_paper_documents_hf,
     load_scholargym_benchmark,
     mteb_dataset_id,
     qasper_chunk_candidates,
@@ -574,6 +575,32 @@ def test_qasper_raw_dataset_resolves_cached_snapshot(tmp_path):
     (repository / "refs" / "main").write_text("abc123\n")
 
     assert qasper_raw_dataset_path(cache_dir=tmp_path) == str(snapshot)
+
+
+def test_qasper_paper_documents_load_staged_parquet_without_hub(monkeypatch, tmp_path):
+    for split in ("train", "validation", "test"):
+        (tmp_path / f"{split}.parquet").write_bytes(b"fixture")
+
+    class DownloadConfig:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    def load_dataset(dataset_id, **kwargs):
+        assert dataset_id == "parquet"
+        assert kwargs["split"] == "data"
+        assert len(kwargs["data_files"]["data"]) == 3
+        return [{"id": "1911.00001", "title": "Paper", "abstract": "Abstract"}]
+
+    monkeypatch.setitem(sys.modules, "datasets", SimpleNamespace(
+        DownloadConfig=DownloadConfig,
+        load_dataset=load_dataset,
+    ))
+
+    documents = load_qasper_paper_documents_hf(dataset_id=tmp_path)
+
+    assert documents == [
+        Document("1911.00001", "Paper Abstract", "1911.00001", {"title": "Paper"})
+    ]
 
 
 def test_qasper_two_stage_restricts_chunks_to_retrieved_papers(monkeypatch):

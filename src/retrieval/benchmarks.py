@@ -367,6 +367,8 @@ def qasper_raw_dataset_path(
     if str(dataset_id) == DEFAULT_QASPER_RAW_DATASET and cache_dir:
         cache_root = Path(cache_dir).expanduser()
         candidates = [
+            cache_root / "qasper-parquet",
+            cache_root / "datasets" / "qasper-parquet",
             cache_root / "datasets" / "datasets--allenai--qasper",
             cache_root / "hub" / "datasets--allenai--qasper",
             requested,
@@ -375,9 +377,10 @@ def qasper_raw_dataset_path(
     for repository in candidates:
         if not repository.is_dir():
             continue
-        refs_main = repository / "refs" / "main"
-        if refs_main.is_file():
-            snapshot = repository / "snapshots" / refs_main.read_text().strip()
+        for ref in (repository / "refs" / "convert" / "parquet", repository / "refs" / "main"):
+            if not ref.is_file():
+                continue
+            snapshot = repository / "snapshots" / ref.read_text().strip()
             if snapshot.is_dir():
                 return str(snapshot)
         snapshots_dir = repository / "snapshots"
@@ -389,6 +392,50 @@ def qasper_raw_dataset_path(
     return str(dataset_id)
 
 
+def _load_qasper_local_parquet(
+    directory: Path,
+    split: str,
+    cache_dir: str | Path | None,
+):
+    """Load staged Hugging Face converted-Parquet QASPER splits."""
+    requested_splits = split.split("+")
+    parquet_files = sorted(directory.rglob("*.parquet"))
+    selected = []
+    missing = []
+    for split_name in requested_splits:
+        matches = [
+            path
+            for path in parquet_files
+            if split_name in path.parts or path.stem.startswith(split_name)
+        ]
+        if matches:
+            selected.extend(matches)
+        else:
+            missing.append(split_name)
+    if missing:
+        raise ValueError(
+            f"local QASPER Parquet directory {directory} is missing splits: {', '.join(missing)}"
+        )
+
+    os.environ["HF_DATASETS_OFFLINE"] = "1"
+    os.environ["HF_HUB_OFFLINE"] = "1"
+    try:
+        from datasets import DownloadConfig, load_dataset
+    except ImportError as exc:
+        raise RuntimeError("install the eval extra to load QASPER: pip install -e '.[eval]'") from exc
+    dataset_cache = None
+    if cache_dir:
+        cache_root = Path(cache_dir).expanduser()
+        dataset_cache = str(cache_root / "datasets")
+    return load_dataset(
+        "parquet",
+        data_files={"data": [str(path) for path in selected]},
+        split="data",
+        cache_dir=dataset_cache,
+        download_config=DownloadConfig(cache_dir=dataset_cache, local_files_only=True),
+    )
+
+
 def load_qasper_paper_documents_hf(
     *,
     dataset_id: str = DEFAULT_QASPER_RAW_DATASET,
@@ -397,7 +444,20 @@ def load_qasper_paper_documents_hf(
 ) -> list[Document]:
     """Load QASPER's title+abstract records as one document per paper."""
     dataset_id = qasper_raw_dataset_path(dataset_id, cache_dir)
-    paper_table = _load_hf_split(dataset_id, "qasper", split, cache_dir)
+    dataset_path = Path(dataset_id).expanduser()
+    if dataset_path.is_dir() and any(dataset_path.rglob("*.parquet")):
+        paper_table = _load_qasper_local_parquet(dataset_path, split, cache_dir)
+    elif dataset_path.is_file() and dataset_path.suffix == ".parquet":
+        paper_table = _load_qasper_local_parquet(dataset_path.parent, split, cache_dir)
+    elif dataset_path.is_dir() and any(dataset_path.rglob("qasper.py")):
+        raise RuntimeError(
+            "the cached allenai/qasper snapshot contains only its legacy loader; "
+            "AllenAI S3 is required for that loader. Run "
+            "scripts/download_qasper_parquet.sh <cache-dir>/qasper-parquet "
+            "on a Hugging Face-connected machine instead"
+        )
+    else:
+        paper_table = _load_hf_split(dataset_id, "qasper", split, cache_dir)
     documents = {}
     for row in paper_table:
         paper_id = str(row["id"])
