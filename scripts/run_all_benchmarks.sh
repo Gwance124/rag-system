@@ -15,6 +15,7 @@ BUILD_INDEXES="${BUILD_INDEXES:-1}"
 REBUILD_INDEXES="${REBUILD_INDEXES:-0}"
 FORCE_RERUN="${FORCE_RERUN:-0}"
 INCLUDE_QASPER="${INCLUDE_QASPER:-0}"
+QASPER_SCOPE="${QASPER_SCOPE:-both}"
 INCLUDE_SCHOLARGYM="${INCLUDE_SCHOLARGYM:-0}"
 SCHOLARGYM_DIR="${SCHOLARGYM_DIR:-$CACHE_DIR/datasets/datasets--shenhao--ScholarGym}"
 SCHOLARGYM_PAPER_DB="${SCHOLARGYM_PAPER_DB:-}"
@@ -82,7 +83,18 @@ benchmarks=(
 )
 
 if [[ "$INCLUDE_QASPER" == "1" ]]; then
-  benchmarks+=("qasper::global" "qasper::paper")
+  case "$QASPER_SCOPE" in
+    global|paper)
+      benchmarks+=("qasper::$QASPER_SCOPE")
+      ;;
+    both)
+      benchmarks+=("qasper::global" "qasper::paper")
+      ;;
+    *)
+      echo "QASPER_SCOPE must be global, paper, or both; got: $QASPER_SCOPE" >&2
+      exit 2
+      ;;
+  esac
 fi
 
 if [[ "$INCLUDE_SCHOLARGYM" == "1" ]]; then

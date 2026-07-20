@@ -404,6 +404,13 @@ The main overrides are `CACHE_DIR`, `RESULTS_DIR`, `QDRANT_URL`,
 INCLUDE_QASPER=1 ./scripts/run_all_benchmarks.sh
 ```
 
+The default `QASPER_SCOPE=both` runs both conditions. Select only one with
+`QASPER_SCOPE=global` or `QASPER_SCOPE=paper`:
+
+```bash
+INCLUDE_QASPER=1 QASPER_SCOPE=global ./scripts/run_all_benchmarks.sh
+```
+
 Both conditions reuse the same QASPER dense collection. Set
 `INCLUDE_SCHOLARGYM=1` to append ScholarGym-static to the sweep. It looks in
 `$CACHE_DIR/datasets/datasets--shenhao--ScholarGym` by default; override that with
