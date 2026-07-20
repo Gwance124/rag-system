@@ -1,22 +1,33 @@
 import json
 import math
+import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
 
 from retrieval.benchmarks import (
     DEFAULT_MTEB_DATASET,
+    DEFAULT_QASPER_DATASET,
     load_bright_hf,
     load_jsonl_benchmark,
     load_litsearch_hf,
     load_mteb_hf,
+    load_qasper_hf,
     load_scholargym_benchmark,
     mteb_dataset_id,
     scholargym_paths,
 )
 from retrieval.dense import QdrantIndex
 from retrieval.fusion import aggregate_to_papers, rrf_fuse
-from retrieval.metrics import evaluate_litsearch_comparison, evaluate_run, ndcg_at_k, recall_at_k, reciprocal_rank
+from retrieval.metrics import (
+    capped_recall_at_k,
+    evaluate_capped_recall,
+    evaluate_litsearch_comparison,
+    evaluate_run,
+    ndcg_at_k,
+    recall_at_k,
+    reciprocal_rank,
+)
 from retrieval.pipeline import HybridRetriever
 from retrieval.sparse import BM25Index
 from retrieval.types import Document, RetrievalConfig, SearchHit
@@ -33,6 +44,16 @@ def test_bm25_prefers_matching_document():
         Document("c", "cache cache memory"),
     ])
     assert index.search("cache memory", top_n=1)[0].doc_id == "c"
+
+
+def test_bm25_candidate_scope_ranks_only_allowed_documents():
+    index = BM25Index([
+        Document("global-best", "cache cache cache"),
+        Document("paper-a", "cache"),
+        Document("paper-b", "compiler"),
+    ])
+    hits = index.search("cache", top_n=1, allowed_ids={"paper-a", "paper-b"})
+    assert [hit.doc_id for hit in hits] == ["paper-a"]
 
 
 def test_rrf_fuses_rankings_and_aggregates_chunks_to_papers():
@@ -66,6 +87,14 @@ def test_metrics_match_small_hand_computed_run():
         "ndcg@10": ndcg_at_k(ranking, relevant, 10),
         "mrr": 0.5,
     }
+
+
+def test_lmeb_capped_recall_caps_relevant_count_at_cutoff():
+    relevant = {f"d{i}" for i in range(20)}
+    ranking = [f"d{i}" for i in range(5)] + ["wrong"] * 5
+    assert recall_at_k(ranking, relevant, 10) == 0.25
+    assert capped_recall_at_k(ranking, relevant, 10) == 0.5
+    assert evaluate_capped_recall({"q": ranking}, {"q": relevant}, 10) == 0.5
 
 
 def test_hybrid_retriever_records_rewrite_embed_search_and_fuse_timings():
@@ -124,6 +153,25 @@ def test_dense_index_reports_upsert_progress():
     assert progress == [(2, 3), (3, 3)]
 
 
+def test_dense_index_sends_candidate_filter_to_qdrant():
+    class Embedder:
+        timeout = 1
+
+    index = QdrantIndex("test", Embedder(), "http://localhost:6333")
+    requests = []
+
+    def request(method, path, body):
+        requests.append((method, path, body))
+        return {"result": []}
+
+    index._request = request
+    index.search_vector([1.0], top_n=10, allowed_ids={"chunk-b", "chunk-a"})
+
+    body = requests[0][2]
+    assert body["limit"] == 2
+    assert body["filter"]["must"][0]["match"]["any"] == ["chunk-a", "chunk-b"]
+
+
 def test_jsonl_benchmark_keeps_exclusions_and_qrels(tmp_path):
     documents = tmp_path / "documents.jsonl"
     queries = tmp_path / "queries.jsonl"
@@ -135,6 +183,38 @@ def test_jsonl_benchmark_keeps_exclusions_and_qrels(tmp_path):
     assert benchmark.queries == {"q1": "find it"}
     assert benchmark.qrels == {"q1": {"d1"}}
     assert benchmark.excluded_ids == {"q1": {"d2"}}
+
+
+def test_jsonl_cli_runs_end_to_end(tmp_path):
+    documents = tmp_path / "documents.jsonl"
+    queries = tmp_path / "queries.jsonl"
+    qrels = tmp_path / "qrels.jsonl"
+    documents.write_text(json.dumps({"doc_id": "d1", "text": "matching phrase"}) + "\n")
+    queries.write_text(json.dumps({"query_id": "q1", "query": "matching phrase"}) + "\n")
+    qrels.write_text(json.dumps({"query_id": "q1", "doc_id": "d1"}) + "\n")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(Path(__file__).parents[1] / "scripts" / "run_public_bench.py"),
+            "--benchmark",
+            "jsonl",
+            "--documents",
+            str(documents),
+            "--queries",
+            str(queries),
+            "--qrels",
+            str(qrels),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    output = json.loads(result.stdout)
+    assert output["config"]["benchmark"] == "jsonl"
+    assert output["metrics"]["recall@5"] == 1.0
+    assert output["queries"] == 1
 
 
 def test_scholargym_loader_reads_released_and_readme_schemas(tmp_path):
@@ -360,3 +440,69 @@ def test_mteb_loader_excludes_identical_query_document_ids(monkeypatch):
     ))
     benchmark = load_mteb_hf("mteb/arguana")
     assert benchmark.excluded_ids == {"same": {"same"}}
+
+
+def test_qasper_loader_supports_global_and_paper_scoped_retrieval(monkeypatch):
+    class DownloadConfig:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    class DownloadMode:
+        REUSE_DATASET_IF_EXISTS = "reuse"
+
+    def load_dataset(dataset_id, config, **kwargs):
+        assert dataset_id == DEFAULT_QASPER_DATASET
+        assert kwargs["split"] == "test"
+        if config == "QASPER-corpus":
+            return [
+                {"id": "1911.00001_0", "title": "Paper One", "text": "Abstract"},
+                {"id": "1911.00001_1", "title": "Methods", "text": "Gold evidence"},
+                {"id": "1911.00002_0", "title": "Paper Two", "text": "Distractor"},
+            ]
+        if config == "QASPER-queries":
+            return [{"id": "q1", "text": "What method was used?"}]
+        if config == "QASPER-qrels":
+            return [{"query-id": "q1", "corpus-id": "1911.00001_1", "score": 1}]
+        assert config == "QASPER-top_ranked"
+        return [{"query-id": "q1", "corpus-ids": ["1911.00001_0", "1911.00001_1"]}]
+
+    monkeypatch.setitem(sys.modules, "datasets", SimpleNamespace(
+        DownloadConfig=DownloadConfig,
+        DownloadMode=DownloadMode,
+        load_dataset=load_dataset,
+    ))
+
+    global_benchmark = load_qasper_hf(scope="global")
+    scoped_benchmark = load_qasper_hf(scope="paper")
+
+    assert len(global_benchmark.documents) == 3
+    assert global_benchmark.documents[1].paper_id == "1911.00001"
+    assert global_benchmark.documents[1].text == "Methods Gold evidence"
+    assert global_benchmark.candidate_ids is None
+    assert scoped_benchmark.candidate_ids == {
+        "q1": {"1911.00001_0", "1911.00001_1"}
+    }
+    assert scoped_benchmark.qrels == {"q1": {"1911.00001_1"}}
+
+
+def test_retriever_passes_same_candidate_scope_to_sparse_and_dense():
+    class Sparse:
+        def search(self, query, top_n, allowed_ids):
+            assert allowed_ids == {"allowed"}
+            return [SearchHit("allowed", 1.0), SearchHit("blocked", 0.9)]
+
+    class Dense:
+        def embed_query(self, query):
+            return [1.0]
+
+        def search_vector(self, vector, top_n, allowed_ids):
+            assert allowed_ids == {"allowed"}
+            return [SearchHit("allowed", 1.0), SearchHit("blocked", 0.9)]
+
+    retriever = HybridRetriever(
+        sparse_index=Sparse(),
+        dense_index=Dense(),
+        config=RetrievalConfig(top_k=10),
+    )
+    result = retriever.search("question", allowed_ids={"allowed"})
+    assert [hit.doc_id for hit in result.hits] == ["allowed"]

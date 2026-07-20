@@ -1,3 +1,5 @@
+"""Retrieval metrics and LitSearch paper-baseline comparisons."""
+
 from __future__ import annotations
 
 import math
@@ -28,6 +30,12 @@ LITSEARCH_PAPER_NDCG10 = {
 
 def recall_at_k(ranking: Sequence[str], relevant: set[str], k: int) -> float:
     return len(set(ranking[:k]) & relevant) / len(relevant) if relevant else 0.0
+
+
+def capped_recall_at_k(ranking: Sequence[str], relevant: set[str], k: int) -> float:
+    """LMEB recall whose denominator is capped at the retrieval cutoff."""
+    denominator = min(k, len(relevant))
+    return len(set(ranking[:k]) & relevant) / denominator if denominator else 0.0
 
 
 def reciprocal_rank(ranking: Sequence[str], relevant: set[str]) -> float:
@@ -69,33 +77,38 @@ def evaluate_run(
     return metrics
 
 
-def evaluate_litsearch_comparison(benchmark, run):
-    groups = {}
-    for query_id, metadata in (benchmark.query_metadata or {}).items():
-        query_set = str(metadata.get("query_set", "unknown")).lower().replace("_", "-")
-        if query_set.startswith("inline"):
-            query_set = "inline-citation"
-        elif query_set.startswith("author") or query_set.startswith("manual-"):
-            query_set = "author-written"
-        specificity = "broad" if int(metadata.get("specificity", 0)) == 0 else "specific"
-        groups.setdefault((query_set, specificity), []).append(query_id)
+def evaluate_capped_recall(
+    run: Mapping[str, Sequence[str]],
+    qrels: Mapping[str, set[str]],
+    k: int = 10,
+) -> float:
+    """Return LMEB's macro-averaged capped Recall@k."""
+    query_ids = [query_id for query_id in qrels if query_id in run]
+    if not query_ids:
+        return 0.0
+    return sum(capped_recall_at_k(run[q], qrels[q], k) for q in query_ids) / len(query_ids)
 
-    def evaluate(query_ids):
-        query_ids = [query_id for query_id in query_ids if query_id in run and query_id in benchmark.qrels]
-        return evaluate_run(
-            {query_id: run[query_id] for query_id in query_ids},
-            {query_id: benchmark.qrels[query_id] for query_id in query_ids},
-            ks=(5, 20),
-        )
 
-    ours = {}
-    for (query_set, specificity), query_ids in groups.items():
-        ours.setdefault(query_set, {})[specificity] = {"queries": len(query_ids), **evaluate(query_ids)}
-    for specificity in ("broad", "specific"):
-        query_ids = [query_id for (query_set, kind), ids in groups.items() if kind == specificity for query_id in ids]
-        if query_ids:
-            ours.setdefault("average", {})[specificity] = {"queries": len(query_ids), **evaluate(query_ids)}
+def _litsearch_group(metadata: Mapping) -> tuple[str, str]:
+    query_set = str(metadata.get("query_set", "unknown")).lower().replace("_", "-")
+    if query_set.startswith("inline"):
+        query_set = "inline-citation"
+    elif query_set.startswith("author") or query_set.startswith("manual-"):
+        query_set = "author-written"
+    specificity = "broad" if int(metadata.get("specificity", 0)) == 0 else "specific"
+    return query_set, specificity
 
+
+def _evaluate_litsearch_queries(benchmark, run, query_ids: Iterable[str]) -> dict[str, float]:
+    selected = [query_id for query_id in query_ids if query_id in run and query_id in benchmark.qrels]
+    return evaluate_run(
+        {query_id: run[query_id] for query_id in selected},
+        {query_id: benchmark.qrels[query_id] for query_id in selected},
+        ks=(5, 20),
+    )
+
+
+def _litsearch_deltas(ours: Mapping) -> dict:
     deltas = {}
     for query_set, subsets in ours.items():
         if query_set not in LITSEARCH_PAPER_BM25:
@@ -105,9 +118,36 @@ def evaluate_litsearch_comparison(benchmark, run):
             matching = {key: metrics[key] - value for key, value in reference.items() if key in metrics}
             if matching:
                 deltas.setdefault(query_set, {})[specificity] = matching
+    return deltas
+
+
+def evaluate_litsearch_comparison(benchmark, run):
+    """Compare LitSearch subsets with the cutoffs reported in its paper."""
+    groups = {}
+    for query_id, metadata in (benchmark.query_metadata or {}).items():
+        groups.setdefault(_litsearch_group(metadata), []).append(query_id)
+
+    ours = {}
+    for (query_set, specificity), query_ids in groups.items():
+        ours.setdefault(query_set, {})[specificity] = {
+            "queries": len(query_ids),
+            **_evaluate_litsearch_queries(benchmark, run, query_ids),
+        }
+    for specificity in ("broad", "specific"):
+        query_ids = [
+            query_id
+            for (_, kind), ids in groups.items()
+            if kind == specificity
+            for query_id in ids
+        ]
+        if query_ids:
+            ours.setdefault("average", {})[specificity] = {
+                "queries": len(query_ids),
+                **_evaluate_litsearch_queries(benchmark, run, query_ids),
+            }
     return {
         "paper_bm25": LITSEARCH_PAPER_BM25,
         "paper_ndcg@10": LITSEARCH_PAPER_NDCG10,
         "ours": ours,
-        "delta_vs_paper_bm25": deltas,
+        "delta_vs_paper_bm25": _litsearch_deltas(ours),
     }

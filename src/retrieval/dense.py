@@ -1,3 +1,5 @@
+"""Minimal adapters for vLLM embeddings and Qdrant vector search."""
+
 from __future__ import annotations
 
 import json
@@ -106,11 +108,28 @@ class QdrantIndex:
     def embed_query(self, query: str) -> list[float]:
         return self.embedder.embed([self.embedder.query_prefix + query])[0]
 
-    def search_vector(self, vector: Sequence[float], top_n: int = 100) -> list[SearchHit]:
+    def search_vector(
+        self,
+        vector: Sequence[float],
+        top_n: int = 100,
+        allowed_ids: Iterable[str] | None = None,
+    ) -> list[SearchHit]:
+        allowed = None if allowed_ids is None else sorted(set(allowed_ids))
+        if top_n <= 0 or (allowed is not None and not allowed):
+            return []
+        body = {
+            "vector": list(vector),
+            "limit": min(top_n, len(allowed)) if allowed is not None else top_n,
+            "with_payload": True,
+        }
+        if allowed is not None:
+            body["filter"] = {
+                "must": [{"key": "doc_id", "match": {"any": allowed}}]
+            }
         response = self._request(
             "POST",
             f"/collections/{self.collection}/points/search",
-            {"vector": list(vector), "limit": top_n, "with_payload": True},
+            body,
         )
         return [
             SearchHit(

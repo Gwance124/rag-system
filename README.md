@@ -7,6 +7,9 @@ The repository now has two small projects:
 - `src/retrieval/` and `scripts/run_public_bench.py` contain the retrieval and
   public-benchmark implementation.
 
+See [`docs/retrieval-architecture.md`](docs/retrieval-architecture.md) for the
+retrieval data flow, module responsibilities, and extension points.
+
 Run all tests from the repository root with:
 
 ```bash
@@ -97,6 +100,62 @@ to `mteb/NAME`, and `--dataset-id ORG/NAME` accepts any cached MTEB-format
 dataset directly. This covers the BEIR retrieval datasets hosted under MTEB
 without adding a new loader for every dataset. `--benchmark beir` remains as
 a backward-compatible alias.
+
+### LMEB v4 QASPER chunk retrieval
+
+QASPER supports two directly comparable evidence-retrieval conditions. Both
+conditions use the same questions, paragraph corpus, embeddings, and gold
+evidence labels:
+
+- `--qasper-scope global` searches all QASPER chunks using only the question.
+  This is a custom experiment for testing whether paper retrieval is needed.
+- `--qasper-scope paper` uses LMEB's candidate list to rank only chunks from
+  the known target paper. This isolates the Stage 2 chunk retriever.
+
+The paper is represented by the candidate restriction; its text is not
+appended to the query. Global results have incomplete labels because QASPER
+annotators marked evidence only inside the original target paper.
+
+The QASPER result block reports LMEB v4's official nDCG@10 and capped
+Recall@10 in addition to the runner's standard metrics. LMEB v4 also evaluates
+an instruction condition using `Given a query, retrieve documents that answer
+the query`; supply it through the embedding model's required query-prefix
+format when reproducing that condition.
+
+Warm all four cached configurations before copying the Hugging Face cache to
+the offline benchmark machine:
+
+```python
+from datasets import load_dataset
+
+for config in (
+    "QASPER-corpus",
+    "QASPER-queries",
+    "QASPER-qrels",
+    "QASPER-top_ranked",
+):
+    load_dataset("mteb/QASPER", config, split="test", cache_dir="<hf-cache>/datasets")
+```
+
+Build one dense collection; both scopes reuse it because their chunk corpus is
+identical:
+
+```bash
+python scripts/build_dense_index.py \
+  --benchmark qasper --cache-dir <hf-cache> \
+  --qdrant-url http://localhost:6333 --collection qasper-<model>
+
+python scripts/run_public_bench.py \
+  --benchmark qasper --qasper-scope global --cache-dir <hf-cache> \
+  --mode dense --qdrant-url http://localhost:6333 --collection qasper-<model>
+
+python scripts/run_public_bench.py \
+  --benchmark qasper --qasper-scope paper --cache-dir <hf-cache> \
+  --mode dense --qdrant-url http://localhost:6333 --collection qasper-<model>
+```
+
+Add the same embedding model, API model, and query/passage prefix flags used
+when building the collection. Use `--qasper-query-limit 25` for a smoke test.
 
 Warm the cache once on a machine with internet, copy that Hugging Face cache
 to `solab-p7`, then run:

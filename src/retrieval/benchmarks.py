@@ -1,3 +1,5 @@
+"""Offline benchmark loaders normalized to a shared retrieval data model."""
+
 from __future__ import annotations
 
 import json
@@ -10,6 +12,8 @@ from retrieval.types import Document
 
 
 DEFAULT_MTEB_DATASET = "scidocs"
+DEFAULT_QASPER_DATASET = "mteb/QASPER"
+QASPER_SCOPES = ("global", "paper")
 
 
 def mteb_dataset_id(dataset: str) -> str:
@@ -64,6 +68,7 @@ class Benchmark:
     qrels: dict[str, set[str]]
     excluded_ids: dict[str, set[str]]
     query_metadata: dict[str, dict] | None = None
+    candidate_ids: dict[str, set[str]] | None = None
 
 
 def _load_hf_split(
@@ -104,20 +109,25 @@ def _records(path: str | Path):
                 yield json.loads(line)
 
 
-def load_jsonl_benchmark(
-    documents_path: str | Path,
-    queries_path: str | Path,
-    qrels_path: str | Path,
-) -> Benchmark:
-    documents = [
+def load_jsonl_documents(path: str | Path) -> list[Document]:
+    """Load the document schema shared by JSONL benchmarks and dense indexes."""
+    return [
         Document(
             doc_id=str(row["doc_id"]),
             text=row["text"],
             paper_id=row.get("paper_id"),
             metadata=row.get("metadata", {}),
         )
-        for row in _records(documents_path)
+        for row in _records(path)
     ]
+
+
+def load_jsonl_benchmark(
+    documents_path: str | Path,
+    queries_path: str | Path,
+    qrels_path: str | Path,
+) -> Benchmark:
+    documents = load_jsonl_documents(documents_path)
     queries = {}
     excluded_ids: dict[str, set[str]] = {}
     for row in _records(queries_path):
@@ -171,6 +181,38 @@ def _scholargym_positive_ids(row: dict) -> set[str]:
     }
 
 
+def _scholargym_document(row: dict) -> Document | None:
+    paper_id = row.get("arxiv_id", row.get("id", row.get("_id")))
+    if paper_id is None:
+        return None
+    paper_id = _scholargym_id(paper_id)
+    title = str(row.get("title") or "")
+    abstract = str(row.get("abstract") or row.get("summary") or "")
+    metadata = {
+        key: row[key]
+        for key in ("authors", "published", "year", "categories", "url")
+        if key in row
+    }
+    return Document(paper_id, f"{title} {abstract}".strip(), paper_id, metadata)
+
+
+def _scholargym_query(row: dict) -> tuple[str, str, set[str], dict] | None:
+    if row.get("valid") is False:
+        return None
+    query_id = str(row.get("query_id", row.get("qid")))
+    if query_id == "None":
+        return None
+    positives = _scholargym_positive_ids(row)
+    if not positives:
+        return None
+    metadata = {
+        key: row[key]
+        for key in ("source", "split", "date", "date_constraint")
+        if key in row
+    }
+    return query_id, str(row.get("query", "")), positives, metadata
+
+
 def load_scholargym_benchmark(
     paper_db_path: str | Path,
     benchmark_path: str | Path,
@@ -184,40 +226,21 @@ def load_scholargym_benchmark(
     """
     documents = []
     for row in _scholargym_papers(paper_db_path):
-        paper_id = row.get("arxiv_id", row.get("id", row.get("_id")))
-        if paper_id is None:
-            continue
-        paper_id = _scholargym_id(paper_id)
-        title = str(row.get("title") or "")
-        abstract = str(row.get("abstract") or row.get("summary") or "")
-        documents.append(
-            Document(
-                paper_id,
-                f"{title} {abstract}".strip(),
-                paper_id,
-                {key: row[key] for key in ("authors", "published", "year", "categories", "url") if key in row},
-            )
-        )
+        document = _scholargym_document(row)
+        if document is not None:
+            documents.append(document)
 
     queries = {}
     qrels: dict[str, set[str]] = {}
     query_metadata = {}
     for row in _records(benchmark_path):
-        if row.get("valid") is False:
+        query = _scholargym_query(row)
+        if query is None:
             continue
-        query_id = str(row.get("query_id", row.get("qid")))
-        if query_id == "None":
-            continue
-        positives = _scholargym_positive_ids(row)
-        if not positives:
-            continue
-        queries[query_id] = str(row.get("query", ""))
+        query_id, text, positives, metadata = query
+        queries[query_id] = text
         qrels[query_id] = positives
-        query_metadata[query_id] = {
-            key: row[key]
-            for key in ("source", "split", "date", "date_constraint")
-            if key in row
-        }
+        query_metadata[query_id] = metadata
         if query_limit is not None and len(queries) >= query_limit:
             break
     return Benchmark(
@@ -325,3 +348,105 @@ def load_mteb_hf(
         for query_id in queries
     }
     return Benchmark(documents, queries, qrels, excluded_ids)
+
+
+def _qasper_paper_id(chunk_id: str) -> str:
+    """Return the arXiv paper ID from LMEB's ``<paper>_<chunk>`` ID."""
+    paper_id, separator, chunk_number = chunk_id.rpartition("_")
+    return paper_id if separator and chunk_number.isdigit() else chunk_id
+
+
+def load_qasper_hf(
+    *,
+    scope: str = "global",
+    dataset_id: str = DEFAULT_QASPER_DATASET,
+    split: str = "test",
+    cache_dir: str | Path | None = None,
+    query_limit: int | None = None,
+) -> Benchmark:
+    """Load LMEB-QASPER for global or known-paper chunk retrieval.
+
+    ``global`` searches the shared paragraph corpus and is a custom extension.
+    ``paper`` uses LMEB's per-query ``top_ranked`` candidate IDs, which scope
+    retrieval to the paper associated with the original QASPER question.
+    """
+    if scope not in QASPER_SCOPES:
+        raise ValueError(f"unsupported QASPER scope {scope!r}; expected one of {QASPER_SCOPES}")
+
+    corpus_table = _load_hf_split(dataset_id, "QASPER-corpus", split, cache_dir)
+    query_table = _load_hf_split(dataset_id, "QASPER-queries", split, cache_dir)
+    qrel_table = _load_hf_split(dataset_id, "QASPER-qrels", split, cache_dir)
+
+    documents = []
+    for row in corpus_table:
+        chunk_id = str(row["id"])
+        section = str(row.get("title") or "")
+        paragraph = str(row.get("text") or "")
+        documents.append(
+            Document(
+                chunk_id,
+                f"{section} {paragraph}".strip(),
+                _qasper_paper_id(chunk_id),
+                {"section": section},
+            )
+        )
+
+    qrels: dict[str, set[str]] = {}
+    for row in qrel_table:
+        if float(row.get("score", 1)) > 0:
+            qrels.setdefault(str(row["query-id"]), set()).add(str(row["corpus-id"]))
+
+    all_queries = {
+        str(row["id"]): str(row.get("text", row.get("query", "")))
+        for row in query_table
+    }
+    query_ids = [query_id for query_id in all_queries if query_id in qrels]
+
+    candidate_ids = None
+    if scope == "paper":
+        candidate_table = _load_hf_split(
+            dataset_id,
+            "QASPER-top_ranked",
+            split,
+            cache_dir,
+        )
+        candidate_ids = {
+            str(row["query-id"]): {str(chunk_id) for chunk_id in row["corpus-ids"]}
+            for row in candidate_table
+        }
+        query_ids = [query_id for query_id in query_ids if query_id in candidate_ids]
+
+    if query_limit is not None:
+        query_ids = query_ids[:query_limit]
+    queries = {query_id: all_queries[query_id] for query_id in query_ids}
+    qrels = {query_id: qrels[query_id] for query_id in query_ids}
+    if candidate_ids is not None:
+        candidate_ids = {query_id: candidate_ids[query_id] for query_id in query_ids}
+        missing_gold = {
+            query_id: qrels[query_id] - candidate_ids[query_id]
+            for query_id in query_ids
+            if not qrels[query_id] <= candidate_ids[query_id]
+        }
+        if missing_gold:
+            query_id = next(iter(missing_gold))
+            raise ValueError(
+                f"QASPER candidate pool for {query_id} omits gold chunks: "
+                f"{sorted(missing_gold[query_id])}"
+            )
+
+    return Benchmark(
+        documents,
+        queries,
+        qrels,
+        {query_id: set() for query_id in queries},
+        {
+            query_id: {
+                "scope": scope,
+                "candidate_count": (
+                    len(candidate_ids[query_id]) if candidate_ids is not None else len(documents)
+                ),
+            }
+            for query_id in queries
+        },
+        candidate_ids,
+    )

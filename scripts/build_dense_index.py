@@ -1,19 +1,24 @@
 #!/usr/bin/env python3
+"""Build one model-specific Qdrant collection from a benchmark corpus."""
+
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from retrieval.benchmarks import (
     DEFAULT_MTEB_DATASET,
+    DEFAULT_QASPER_DATASET,
     load_bright_hf,
+    load_jsonl_documents,
     load_litsearch_hf,
     load_mteb_hf,
+    load_qasper_hf,
     load_scholargym_benchmark,
     mteb_dataset_id,
     scholargym_paths,
@@ -22,11 +27,11 @@ from retrieval.dense import QdrantIndex, VllmEmbeddingClient
 from retrieval.types import Document
 
 
-def main() -> None:
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Build a Qdrant dense index from the local HF cache or JSONL.")
     parser.add_argument(
         "--benchmark",
-        choices=("bright", "litsearch", "mteb", "beir", "scholargym", "jsonl"),
+        choices=("bright", "litsearch", "mteb", "beir", "qasper", "scholargym", "jsonl"),
         default="litsearch",
         help="benchmark family; beir is a backward-compatible alias for mteb",
     )
@@ -48,26 +53,34 @@ def main() -> None:
     parser.add_argument("--query-prefix", default="query: ")
     parser.add_argument("--passage-prefix", default="passage: ")
     parser.add_argument("--batch-size", type=int, default=32)
-    args = parser.parse_args()
-    is_mteb = args.benchmark in ("mteb", "beir")
+    return parser
 
+
+def _load_documents(args: argparse.Namespace, parser: argparse.ArgumentParser) -> list[Document]:
+    """Load only the corpus selected by the index-building arguments."""
+    is_mteb = args.benchmark in ("mteb", "beir")
     if args.benchmark == "bright":
-        benchmark = load_bright_hf(
+        return load_bright_hf(
             args.domain,
             dataset_id=args.dataset_id or "xlangai/BRIGHT",
             long_documents=args.long_documents,
             cache_dir=args.cache_dir,
-        )
-        documents = benchmark.documents
-    elif args.benchmark == "litsearch":
-        documents = load_litsearch_hf(
+        ).documents
+    if args.benchmark == "litsearch":
+        return load_litsearch_hf(
             dataset_id=args.dataset_id or "princeton-nlp/LitSearch",
             cache_dir=args.cache_dir,
         ).documents
-    elif is_mteb:
+    if is_mteb:
         dataset_id = args.dataset_id or mteb_dataset_id(args.dataset)
-        documents = load_mteb_hf(dataset_id, split=args.split, cache_dir=args.cache_dir).documents
-    elif args.benchmark == "scholargym":
+        return load_mteb_hf(dataset_id, split=args.split, cache_dir=args.cache_dir).documents
+    if args.benchmark == "qasper":
+        return load_qasper_hf(
+            dataset_id=args.dataset_id or DEFAULT_QASPER_DATASET,
+            split=args.split,
+            cache_dir=args.cache_dir,
+        ).documents
+    if args.benchmark == "scholargym":
         paper_db_path, benchmark_path = scholargym_paths(
             args.cache_dir,
             args.scholargym_dir,
@@ -79,25 +92,41 @@ def main() -> None:
                 "ScholarGym files not found; expected "
                 f"{paper_db_path} and {benchmark_path}"
             )
-        documents = load_scholargym_benchmark(
+        return load_scholargym_benchmark(
             paper_db_path,
             benchmark_path,
         ).documents
-    else:
-        if not args.documents:
-            parser.error("jsonl indexing requires --documents")
-        with open(args.documents) as handle:
-            documents = [
-                Document(
-                    str(row["doc_id"]),
-                    row["text"],
-                    row.get("paper_id"),
-                    row.get("metadata", {}),
-                )
-                for line in handle
-                if line.strip()
-                for row in [json.loads(line)]
-            ]
+    if not args.documents:
+        parser.error("jsonl indexing requires --documents")
+    return load_jsonl_documents(args.documents)
+
+
+def _progress_reporter(benchmark: str) -> Callable[[int, int], None]:
+    started = last_report = time.monotonic()
+
+    def report(done: int, total: int) -> None:
+        nonlocal last_report
+        now = time.monotonic()
+        if done < total and now - last_report < 10:
+            return
+        elapsed = max(now - started, 0.001)
+        rate = done / elapsed
+        eta = (total - done) / rate if rate else 0
+        print(
+            f"[{benchmark}/dense-index] embedded+upserted {done}/{total} "
+            f"({100 * done / total:.1f}%, {rate:.1f} docs/s, ETA {eta / 60:.1f} min)",
+            file=sys.stderr,
+            flush=True,
+        )
+        last_report = now
+
+    return report
+
+
+def main() -> None:
+    parser = _build_parser()
+    args = parser.parse_args()
+    documents = _load_documents(args, parser)
 
     index = QdrantIndex(
         args.collection,
@@ -114,25 +143,7 @@ def main() -> None:
         file=sys.stderr,
         flush=True,
     )
-    started = last_report = time.monotonic()
-
-    def report_progress(done: int, total: int) -> None:
-        nonlocal last_report
-        now = time.monotonic()
-        if done < total and now - last_report < 10:
-            return
-        elapsed = max(now - started, 0.001)
-        rate = done / elapsed
-        eta = (total - done) / rate if rate else 0
-        print(
-            f"[{args.benchmark}/dense-index] embedded+upserted {done}/{total} "
-            f"({100 * done / total:.1f}%, {rate:.1f} docs/s, ETA {eta / 60:.1f} min)",
-            file=sys.stderr,
-            flush=True,
-        )
-        last_report = now
-
-    index.create(documents, batch_size=args.batch_size, progress=report_progress)
+    index.create(documents, batch_size=args.batch_size, progress=_progress_reporter(args.benchmark))
     print(f"Indexed {len(documents)} documents into {args.collection}")
 
 

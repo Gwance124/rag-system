@@ -1,3 +1,5 @@
+"""Rank fusion and optional chunk-to-paper aggregation."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
