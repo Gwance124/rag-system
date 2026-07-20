@@ -398,6 +398,13 @@ mv results/public/*-dense.json results/public/*-hybrid.json \
 The main overrides are `CACHE_DIR`, `RESULTS_DIR`, `QDRANT_URL`,
 `EMBEDDING_URL`, `EMBEDDING_MODEL`, `EMBEDDING_API_MODEL`, `QUERY_PREFIX`,
 `PASSAGE_PREFIX`, `MODEL_TAG`, and `BATCH_SIZE`. Set
+`INCLUDE_QASPER=1` to append both QASPER global and paper-scoped retrieval:
+
+```bash
+INCLUDE_QASPER=1 ./scripts/run_all_benchmarks.sh
+```
+
+Both conditions reuse the same QASPER dense collection. Set
 `INCLUDE_SCHOLARGYM=1` to append ScholarGym-static to the sweep. It looks in
 `$CACHE_DIR/datasets/datasets--shenhao--ScholarGym` by default; override that with
 `SCHOLARGYM_DIR`, or use the two explicit file variables

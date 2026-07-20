@@ -14,6 +14,7 @@ BATCH_SIZE="${BATCH_SIZE:-128}"
 BUILD_INDEXES="${BUILD_INDEXES:-1}"
 REBUILD_INDEXES="${REBUILD_INDEXES:-0}"
 FORCE_RERUN="${FORCE_RERUN:-0}"
+INCLUDE_QASPER="${INCLUDE_QASPER:-0}"
 INCLUDE_SCHOLARGYM="${INCLUDE_SCHOLARGYM:-0}"
 SCHOLARGYM_DIR="${SCHOLARGYM_DIR:-$CACHE_DIR/datasets/datasets--shenhao--ScholarGym}"
 SCHOLARGYM_PAPER_DB="${SCHOLARGYM_PAPER_DB:-}"
@@ -78,9 +79,11 @@ benchmarks=(
   "mteb:scifact"
   "mteb:nfcorpus"
   "mteb:trec-covid"
-  "qasper::global"
-  "qasper::paper"
 )
+
+if [[ "$INCLUDE_QASPER" == "1" ]]; then
+  benchmarks+=("qasper::global" "qasper::paper")
+fi
 
 if [[ "$INCLUDE_SCHOLARGYM" == "1" ]]; then
   benchmarks+=("scholargym:")
