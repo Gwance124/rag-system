@@ -450,7 +450,10 @@ The default is `$CACHE_DIR/datasets/datasets--mteb--QASPER`. When that path is
 a Hugging Face cache repository, the runner resolves `refs/main` to the actual
 `snapshots/<commit-hash>` directory automatically.
 Set `QASPER_RAW_DATASET_ID` if the raw `allenai/qasper` title+abstract dataset
-is staged under a different local dataset ID or path.
+is staged under a different local dataset ID or path. By default, the loader
+checks both `$CACHE_DIR/datasets/datasets--allenai--qasper` and
+`$CACHE_DIR/hub/datasets--allenai--qasper`, then resolves `refs/main` to its
+`snapshots/<commit-hash>` directory before loading offline.
 
 All conditions reuse the same QASPER chunk collection. Two-stage additionally
 builds a small `qasper-papers-<model>` title+abstract collection. Set

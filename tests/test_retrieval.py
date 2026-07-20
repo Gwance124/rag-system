@@ -20,6 +20,7 @@ from retrieval.benchmarks import (
     load_scholargym_benchmark,
     mteb_dataset_id,
     qasper_chunk_candidates,
+    qasper_raw_dataset_path,
     scholargym_paths,
 )
 from retrieval.dense import QdrantIndex
@@ -563,6 +564,16 @@ def test_qasper_paper_benchmark_derives_target_from_gold_chunks(monkeypatch):
         chunks.documents,
         {"q1": ["1911.00002", "1911.00001"]},
     ) == {"q1": {"1911.00001_0", "1911.00002_0"}}
+
+
+def test_qasper_raw_dataset_resolves_cached_snapshot(tmp_path):
+    repository = tmp_path / "datasets" / "datasets--allenai--qasper"
+    snapshot = repository / "snapshots" / "abc123"
+    snapshot.mkdir(parents=True)
+    (repository / "refs").mkdir()
+    (repository / "refs" / "main").write_text("abc123\n")
+
+    assert qasper_raw_dataset_path(cache_dir=tmp_path) == str(snapshot)
 
 
 def test_qasper_two_stage_restricts_chunks_to_retrieved_papers(monkeypatch):

@@ -357,6 +357,38 @@ def _qasper_paper_id(chunk_id: str) -> str:
     return paper_id if separator and chunk_number.isdigit() else chunk_id
 
 
+def qasper_raw_dataset_path(
+    dataset_id: str | Path = DEFAULT_QASPER_RAW_DATASET,
+    cache_dir: str | Path | None = None,
+) -> str:
+    """Resolve a locally cached raw-QASPER repository to its snapshot."""
+    requested = Path(dataset_id).expanduser()
+    candidates = [requested]
+    if str(dataset_id) == DEFAULT_QASPER_RAW_DATASET and cache_dir:
+        cache_root = Path(cache_dir).expanduser()
+        candidates = [
+            cache_root / "datasets" / "datasets--allenai--qasper",
+            cache_root / "hub" / "datasets--allenai--qasper",
+            requested,
+        ]
+
+    for repository in candidates:
+        if not repository.is_dir():
+            continue
+        refs_main = repository / "refs" / "main"
+        if refs_main.is_file():
+            snapshot = repository / "snapshots" / refs_main.read_text().strip()
+            if snapshot.is_dir():
+                return str(snapshot)
+        snapshots_dir = repository / "snapshots"
+        if snapshots_dir.is_dir():
+            snapshots = sorted(path for path in snapshots_dir.iterdir() if path.is_dir())
+            if snapshots:
+                return str(snapshots[-1])
+        return str(repository)
+    return str(dataset_id)
+
+
 def load_qasper_paper_documents_hf(
     *,
     dataset_id: str = DEFAULT_QASPER_RAW_DATASET,
@@ -364,6 +396,7 @@ def load_qasper_paper_documents_hf(
     cache_dir: str | Path | None = None,
 ) -> list[Document]:
     """Load QASPER's title+abstract records as one document per paper."""
+    dataset_id = qasper_raw_dataset_path(dataset_id, cache_dir)
     paper_table = _load_hf_split(dataset_id, "qasper", split, cache_dir)
     documents = {}
     for row in paper_table:
