@@ -41,7 +41,12 @@ def _variant(data: dict, path: Path) -> tuple[str, str, str]:
     else:
         model = str(config.get("embedding_model") or path.parent.name or "unknown")
         model = model.rsplit("/", 1)[-1]
-    return model, mode, f"{model} / {mode}"
+    label = f"{model} / {mode}"
+    if config.get("benchmark") == "qasper" and config.get("qasper_scope") == "two-stage":
+        paper_top_k = config.get("qasper_paper_top_k")
+        if paper_top_k is not None:
+            label = f"{label} / paper-k={paper_top_k}"
+    return model, mode, label
 
 
 def load_results(results_dir: str | Path) -> dict[str, list[dict]]:

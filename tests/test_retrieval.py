@@ -318,6 +318,7 @@ def test_plotter_groups_results_by_dataset_and_model_pipeline(tmp_path):
             "config": {
                 "benchmark": "qasper",
                 "qasper_scope": scope,
+                "qasper_paper_top_k": 20 if scope == "two-stage" else None,
                 "mode": "dense",
                 "embedding_model": "Qwen/Qwen3-Embedding-4B",
             },
@@ -330,6 +331,21 @@ def test_plotter_groups_results_by_dataset_and_model_pipeline(tmp_path):
                 }
             } if scope == "two-stage" else {}),
         }))
+    (root / "qwen3-embedding-4b" / "qasper-two-stage-k100-dense.json").write_text(json.dumps({
+        "config": {
+            "benchmark": "qasper",
+            "qasper_scope": "two-stage",
+            "qasper_paper_top_k": 100,
+            "mode": "dense",
+            "embedding_model": "Qwen/Qwen3-Embedding-4B",
+        },
+        "metrics": {"ndcg@10": 0.45},
+        "qasper": {
+            "paper_retrieval": {
+                "metrics": {"recall@5": 0.7, "recall@20": 0.9}
+            }
+        },
+    }))
 
     results = load_results(root)
     assert [row["label"] for row in results["litsearch"]] == ["BM25 / sparse"]
@@ -338,8 +354,10 @@ def test_plotter_groups_results_by_dataset_and_model_pipeline(tmp_path):
     assert results["mteb-scifact"][0]["label"] == "Qwen3-Embedding-4B / dense"
     assert results["qasper-global"][0]["metrics"]["ndcg@10"] == 0.2
     assert results["qasper-paper"][0]["metrics"]["ndcg@10"] == 0.6
-    assert results["qasper-two-stage"][0]["metrics"]["ndcg@10"] == 0.4
-    assert results["qasper-two-stage-papers"][0]["metrics"]["recall@20"] == 0.9
+    two_stage = {row["label"]: row for row in results["qasper-two-stage"]}
+    assert two_stage["Qwen3-Embedding-4B / dense / paper-k=20"]["metrics"]["ndcg@10"] == 0.4
+    assert two_stage["Qwen3-Embedding-4B / dense / paper-k=100"]["metrics"]["ndcg@10"] == 0.45
+    assert len(results["qasper-two-stage-papers"]) == 2
 
 
 def test_bright_loader_is_strictly_local(monkeypatch, tmp_path):

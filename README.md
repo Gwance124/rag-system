@@ -444,6 +444,12 @@ INCLUDE_QASPER=1 QASPER_SCOPE=two-stage QASPER_PAPER_TOP_K=20 \
   ./scripts/run_all_benchmarks.sh
 ```
 
+Two-stage result filenames include the paper depth, for example
+`qasper-two-stage-k20-dense.json` and `qasper-two-stage-k100-dense.json`.
+Different K values therefore coexist and appear as separate bars in the same
+plot. K changes only the candidate cutoff, so all runs reuse the same QASPER
+paper and chunk collections; no K-specific Qdrant collection is built.
+
 For a locally downloaded QASPER repository, set `QASPER_DIR` to its root:
 
 ```bash

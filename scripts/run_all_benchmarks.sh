@@ -124,6 +124,9 @@ for spec in "${benchmarks[@]}"; do
   name="$benchmark${dataset:+-$dataset}"
   if [[ "$benchmark" == "qasper" ]]; then
     name="$name-$qasper_scope"
+    if [[ "$qasper_scope" == "two-stage" ]]; then
+      name="$name-k$QASPER_PAPER_TOP_K"
+    fi
   fi
   collection_name="$benchmark${dataset:+-$dataset}"
   collection="$collection_name-$COLLECTION_TAG"
