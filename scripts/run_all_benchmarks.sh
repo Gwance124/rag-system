@@ -120,9 +120,6 @@ for spec in "${benchmarks[@]}"; do
   if [[ -n "$dataset" ]]; then
     benchmark_args+=(--dataset "$dataset")
   fi
-  if [[ "$benchmark" == "qasper" ]]; then
-    benchmark_args+=(--qasper-scope "$qasper_scope")
-  fi
   if [[ "$benchmark" == "scholargym" ]]; then
     benchmark_args+=(--scholargym-dir "$SCHOLARGYM_DIR")
     if [[ -n "$SCHOLARGYM_PAPER_DB" ]]; then
@@ -131,6 +128,10 @@ for spec in "${benchmarks[@]}"; do
     if [[ -n "$SCHOLARGYM_BENCHMARK_JSONL" ]]; then
       benchmark_args+=(--scholargym-benchmark "$SCHOLARGYM_BENCHMARK_JSONL")
     fi
+  fi
+  run_benchmark_args=("${benchmark_args[@]}")
+  if [[ "$benchmark" == "qasper" ]]; then
+    run_benchmark_args+=(--qasper-scope "$qasper_scope")
   fi
 
   needs_dense_index=0
@@ -181,7 +182,7 @@ for spec in "${benchmarks[@]}"; do
     result_log="$FAILURES_DIR/$name-$mode.log"
     temporary_result="$result_file.tmp.$$"
     if "$PYTHON_BIN" "$ROOT_DIR/scripts/run_public_bench.py" \
-        "${benchmark_args[@]}" \
+        "${run_benchmark_args[@]}" \
         --mode "$mode" \
         --embedding-url "$EMBEDDING_URL" \
         --embedding-model "$EMBEDDING_MODEL" \
