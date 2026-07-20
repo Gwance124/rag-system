@@ -57,7 +57,7 @@ def load_results(results_dir: str | Path) -> dict[str, list[dict]]:
             continue
         benchmark = _benchmark_key(data, path)
         model, mode, label = _variant(data, path)
-        grouped[(benchmark, label)] = {
+        row = {
             "benchmark": benchmark,
             "model": model,
             "mode": mode,
@@ -65,6 +65,24 @@ def load_results(results_dir: str | Path) -> dict[str, list[dict]]:
             "metrics": data["metrics"],
             "source": str(path),
         }
+        grouped[(benchmark, label)] = row
+
+        if benchmark == "litsearch":
+            averages = (
+                data.get("litsearch_paper_comparison", {})
+                .get("ours", {})
+                .get("average", {})
+            )
+            for specificity in ("broad", "specific"):
+                metrics = averages.get(specificity)
+                if not isinstance(metrics, dict):
+                    continue
+                subset = f"litsearch-average-{specificity}"
+                grouped[(subset, label)] = {
+                    **row,
+                    "benchmark": subset,
+                    "metrics": metrics,
+                }
 
     output: dict[str, list[dict]] = {}
     for row in sorted(grouped.values(), key=lambda item: (item["benchmark"], item["label"])):

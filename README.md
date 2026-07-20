@@ -500,6 +500,10 @@ every discovered model/pipeline, including BM25, dense, and hybrid, using
 Recall@5/20/50 and nDCG@10. Use `--metrics recall@20,recall@50` for a
 ScholarGym-focused graph.
 
+LitSearch also produces `litsearch-average-broad.png` and
+`litsearch-average-specific.png` from the paper-comparable broad/specific
+subsets stored in each result's `litsearch_paper_comparison` block.
+
 If an older staging run put `princeton-nlp___lit_search/` directly under
 `hub/`, move that processed dataset cache into `datasets/` before running
 offline:

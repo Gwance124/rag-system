@@ -292,6 +292,14 @@ def test_plotter_groups_results_by_dataset_and_model_pipeline(tmp_path):
     (root / "sparse" / "litsearch-sparse.json").write_text(json.dumps({
         "config": {"benchmark": "litsearch", "mode": "sparse"},
         "metrics": {"recall@20": 0.4},
+        "litsearch_paper_comparison": {
+            "ours": {
+                "average": {
+                    "broad": {"queries": 155, "recall@20": 0.35},
+                    "specific": {"queries": 442, "recall@5": 0.45, "recall@20": 0.55},
+                }
+            }
+        },
     }))
     (root / "qwen3-embedding-4b" / "mteb-scifact-dense.json").write_text(json.dumps({
         "config": {"benchmark": "mteb", "dataset": "scifact", "mode": "dense", "embedding_model": "Qwen/Qwen3-Embedding-4B"},
@@ -310,6 +318,8 @@ def test_plotter_groups_results_by_dataset_and_model_pipeline(tmp_path):
 
     results = load_results(root)
     assert [row["label"] for row in results["litsearch"]] == ["BM25 / sparse"]
+    assert results["litsearch-average-broad"][0]["metrics"]["recall@20"] == 0.35
+    assert results["litsearch-average-specific"][0]["metrics"]["recall@5"] == 0.45
     assert results["mteb-scifact"][0]["label"] == "Qwen3-Embedding-4B / dense"
     assert results["qasper-global"][0]["metrics"]["ndcg@10"] == 0.2
     assert results["qasper-paper"][0]["metrics"]["ndcg@10"] == 0.6
