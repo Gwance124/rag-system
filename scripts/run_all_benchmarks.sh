@@ -17,6 +17,8 @@ FORCE_RERUN="${FORCE_RERUN:-0}"
 INCLUDE_QASPER="${INCLUDE_QASPER:-0}"
 QASPER_SCOPE="${QASPER_SCOPE:-both}"
 QASPER_DIR="${QASPER_DIR:-$CACHE_DIR/datasets/datasets--mteb--QASPER}"
+QASPER_RAW_DATASET_ID="${QASPER_RAW_DATASET_ID:-allenai/qasper}"
+QASPER_PAPER_TOP_K="${QASPER_PAPER_TOP_K:-20}"
 INCLUDE_SCHOLARGYM="${INCLUDE_SCHOLARGYM:-0}"
 SCHOLARGYM_DIR="${SCHOLARGYM_DIR:-$CACHE_DIR/datasets/datasets--shenhao--ScholarGym}"
 SCHOLARGYM_PAPER_DB="${SCHOLARGYM_PAPER_DB:-}"
@@ -93,14 +95,17 @@ benchmarks=(
 
 if [[ "$INCLUDE_QASPER" == "1" ]]; then
   case "$QASPER_SCOPE" in
-    global|paper)
+    global|paper|two-stage)
       benchmarks+=("qasper::$QASPER_SCOPE")
       ;;
     both)
       benchmarks+=("qasper::global" "qasper::paper")
       ;;
+    all)
+      benchmarks+=("qasper::global" "qasper::paper" "qasper::two-stage")
+      ;;
     *)
-      echo "QASPER_SCOPE must be global, paper, or both; got: $QASPER_SCOPE" >&2
+      echo "QASPER_SCOPE must be global, paper, two-stage, both, or all; got: $QASPER_SCOPE" >&2
       exit 2
       ;;
   esac
@@ -122,6 +127,7 @@ for spec in "${benchmarks[@]}"; do
   fi
   collection_name="$benchmark${dataset:+-$dataset}"
   collection="$collection_name-$COLLECTION_TAG"
+  paper_collection="$collection_name-papers-$COLLECTION_TAG"
   if [[ "$name" == "litsearch" && -n "$LITSEARCH_COLLECTION" ]]; then
     collection="$LITSEARCH_COLLECTION"
   fi
@@ -131,6 +137,9 @@ for spec in "${benchmarks[@]}"; do
   fi
   if [[ "$benchmark" == "qasper" && -d "$QASPER_DIR" ]]; then
     benchmark_args+=(--dataset-id "$QASPER_DIR")
+  fi
+  if [[ "$benchmark" == "qasper" ]]; then
+    benchmark_args+=(--qasper-raw-dataset-id "$QASPER_RAW_DATASET_ID")
   fi
   if [[ "$benchmark" == "scholargym" ]]; then
     benchmark_args+=(--scholargym-dir "$SCHOLARGYM_DIR")
@@ -144,6 +153,12 @@ for spec in "${benchmarks[@]}"; do
   run_benchmark_args=("${benchmark_args[@]}")
   if [[ "$benchmark" == "qasper" ]]; then
     run_benchmark_args+=(--qasper-scope "$qasper_scope")
+    if [[ "$qasper_scope" == "two-stage" ]]; then
+      run_benchmark_args+=(
+        --qasper-paper-collection "$paper_collection"
+        --qasper-paper-top-k "$QASPER_PAPER_TOP_K"
+      )
+    fi
   fi
 
   needs_dense_index=0
@@ -173,6 +188,30 @@ for spec in "${benchmarks[@]}"; do
         status=$?
         index_failed=1
         record_failure "$name" "dense/hybrid" "build index" "$status" "$index_log"
+      fi
+    fi
+    if [[ "$qasper_scope" == "two-stage" && "$index_failed" == "0" ]]; then
+      if [[ "$REBUILD_INDEXES" != "1" ]] && curl -fsS "$QDRANT_URL/collections/$paper_collection" >/dev/null 2>&1; then
+        echo "Reusing $paper_collection" >&2
+      else
+        echo "Building $paper_collection" >&2
+        if "$PYTHON_BIN" "$ROOT_DIR/scripts/build_dense_index.py" \
+            "${benchmark_args[@]}" \
+            --qasper-corpus papers \
+            --embedding-url "$EMBEDDING_URL" \
+            --embedding-model "$EMBEDDING_MODEL" \
+            --embedding-api-model "$EMBEDDING_API_MODEL" \
+            --query-prefix "$QUERY_PREFIX" \
+            --passage-prefix "$PASSAGE_PREFIX" \
+            --qdrant-url "$QDRANT_URL" \
+            --collection "$paper_collection" \
+            --batch-size "$BATCH_SIZE" > >(tee "$index_log" >&2) 2>&1; then
+          :
+        else
+          status=$?
+          index_failed=1
+          record_failure "$name" "dense/hybrid" "build paper index" "$status" "$index_log"
+        fi
       fi
     fi
   fi

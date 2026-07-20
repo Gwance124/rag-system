@@ -14,11 +14,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from retrieval.benchmarks import (
     DEFAULT_MTEB_DATASET,
     DEFAULT_QASPER_DATASET,
+    DEFAULT_QASPER_RAW_DATASET,
     load_bright_hf,
     load_jsonl_documents,
     load_litsearch_hf,
     load_mteb_hf,
     load_qasper_hf,
+    load_qasper_paper_documents_hf,
     load_scholargym_benchmark,
     mteb_dataset_id,
     scholargym_paths,
@@ -41,6 +43,17 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--split", default="test")
     parser.add_argument("--long-documents", action="store_true")
     parser.add_argument("--cache-dir", help="Hugging Face root containing hub/ and datasets/")
+    parser.add_argument(
+        "--qasper-corpus",
+        choices=("chunks", "papers"),
+        default="chunks",
+        help="index LMEB chunks or raw-QASPER title+abstract papers",
+    )
+    parser.add_argument(
+        "--qasper-raw-dataset-id",
+        default=DEFAULT_QASPER_RAW_DATASET,
+        help="raw QASPER dataset containing paper titles and abstracts",
+    )
     parser.add_argument("--documents", help="JSONL documents for --benchmark jsonl")
     parser.add_argument("--scholargym-paper-db", help="ScholarGym scholargym_paper_db.json")
     parser.add_argument("--scholargym-benchmark", help="ScholarGym scholargym_bench.jsonl")
@@ -75,6 +88,11 @@ def _load_documents(args: argparse.Namespace, parser: argparse.ArgumentParser) -
         dataset_id = args.dataset_id or mteb_dataset_id(args.dataset)
         return load_mteb_hf(dataset_id, split=args.split, cache_dir=args.cache_dir).documents
     if args.benchmark == "qasper":
+        if args.qasper_corpus == "papers":
+            return load_qasper_paper_documents_hf(
+                dataset_id=args.qasper_raw_dataset_id,
+                cache_dir=args.cache_dir,
+            )
         return load_qasper_hf(
             dataset_id=args.dataset_id or DEFAULT_QASPER_DATASET,
             split=args.split,

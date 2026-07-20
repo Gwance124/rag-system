@@ -1,3 +1,4 @@
+import argparse
 import json
 import math
 import subprocess
@@ -8,13 +9,17 @@ from types import SimpleNamespace
 from retrieval.benchmarks import (
     DEFAULT_MTEB_DATASET,
     DEFAULT_QASPER_DATASET,
+    DEFAULT_QASPER_RAW_DATASET,
+    Benchmark,
     load_bright_hf,
     load_jsonl_benchmark,
     load_litsearch_hf,
     load_mteb_hf,
     load_qasper_hf,
+    load_qasper_paper_benchmark_hf,
     load_scholargym_benchmark,
     mteb_dataset_id,
+    qasper_chunk_candidates,
     scholargym_paths,
 )
 from retrieval.dense import QdrantIndex
@@ -35,6 +40,7 @@ from retrieval.types import Document, RetrievalConfig, SearchHit
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from report_checkpoint1 import build_report, to_markdown
 from plot_benchmark_results import load_results
+import run_public_bench
 
 
 def test_bm25_prefers_matching_document():
@@ -305,7 +311,7 @@ def test_plotter_groups_results_by_dataset_and_model_pipeline(tmp_path):
         "config": {"benchmark": "mteb", "dataset": "scifact", "mode": "dense", "embedding_model": "Qwen/Qwen3-Embedding-4B"},
         "metrics": {"ndcg@10": 0.5},
     }))
-    for scope, score in (("global", 0.2), ("paper", 0.6)):
+    for scope, score in (("global", 0.2), ("paper", 0.6), ("two-stage", 0.4)):
         (root / "qwen3-embedding-4b" / f"qasper-{scope}-dense.json").write_text(json.dumps({
             "config": {
                 "benchmark": "qasper",
@@ -314,6 +320,13 @@ def test_plotter_groups_results_by_dataset_and_model_pipeline(tmp_path):
                 "embedding_model": "Qwen/Qwen3-Embedding-4B",
             },
             "metrics": {"ndcg@10": score},
+            **({
+                "qasper": {
+                    "paper_retrieval": {
+                        "metrics": {"recall@5": 0.7, "recall@20": 0.9}
+                    }
+                }
+            } if scope == "two-stage" else {}),
         }))
 
     results = load_results(root)
@@ -323,6 +336,8 @@ def test_plotter_groups_results_by_dataset_and_model_pipeline(tmp_path):
     assert results["mteb-scifact"][0]["label"] == "Qwen3-Embedding-4B / dense"
     assert results["qasper-global"][0]["metrics"]["ndcg@10"] == 0.2
     assert results["qasper-paper"][0]["metrics"]["ndcg@10"] == 0.6
+    assert results["qasper-two-stage"][0]["metrics"]["ndcg@10"] == 0.4
+    assert results["qasper-two-stage-papers"][0]["metrics"]["recall@20"] == 0.9
 
 
 def test_bright_loader_is_strictly_local(monkeypatch, tmp_path):
@@ -505,6 +520,100 @@ def test_qasper_loader_supports_global_and_paper_scoped_retrieval(monkeypatch):
         "q1": {"1911.00001_0", "1911.00001_1"}
     }
     assert scoped_benchmark.qrels == {"q1": {"1911.00001_1"}}
+
+
+def test_qasper_paper_benchmark_derives_target_from_gold_chunks(monkeypatch):
+    class DownloadConfig:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    class DownloadMode:
+        REUSE_DATASET_IF_EXISTS = "reuse"
+
+    def load_dataset(dataset_id, config, **kwargs):
+        assert dataset_id == DEFAULT_QASPER_RAW_DATASET
+        assert config == "qasper"
+        assert kwargs["split"] == "train+validation+test"
+        return [
+            {"id": "1911.00001", "title": "Target Paper", "abstract": "Caching method"},
+            {"id": "1911.00002", "title": "Distractor", "abstract": "Parsing method"},
+        ]
+
+    monkeypatch.setitem(sys.modules, "datasets", SimpleNamespace(
+        DownloadConfig=DownloadConfig,
+        DownloadMode=DownloadMode,
+        load_dataset=load_dataset,
+    ))
+    chunks = Benchmark(
+        documents=[
+            Document("1911.00001_0", "target chunk", "1911.00001"),
+            Document("1911.00002_0", "other chunk", "1911.00002"),
+        ],
+        queries={"q1": "What caching method is used?"},
+        qrels={"q1": {"1911.00001_0"}},
+        excluded_ids={"q1": set()},
+    )
+
+    papers = load_qasper_paper_benchmark_hf(chunk_benchmark=chunks)
+
+    assert papers.qrels == {"q1": {"1911.00001"}}
+    assert papers.documents[0].text == "Target Paper Caching method"
+    assert papers.query_metadata["q1"]["target_paper_id"] == "1911.00001"
+    assert qasper_chunk_candidates(
+        chunks.documents,
+        {"q1": ["1911.00002", "1911.00001"]},
+    ) == {"q1": {"1911.00001_0", "1911.00002_0"}}
+
+
+def test_qasper_two_stage_restricts_chunks_to_retrieved_papers(monkeypatch):
+    chunks = Benchmark(
+        documents=[
+            Document("target_0", "cache evidence", "target"),
+            Document("other_0", "compiler evidence", "other"),
+        ],
+        queries={"q1": "cache method"},
+        qrels={"q1": {"target_0"}},
+        excluded_ids={"q1": set()},
+    )
+    papers = Benchmark(
+        documents=[
+            Document("target", "cache method paper", "target"),
+            Document("other", "compiler paper", "other"),
+        ],
+        queries=dict(chunks.queries),
+        qrels={"q1": {"target"}},
+        excluded_ids={"q1": set()},
+    )
+    monkeypatch.setattr(
+        run_public_bench,
+        "load_qasper_paper_benchmark_hf",
+        lambda **kwargs: papers,
+    )
+    args = SimpleNamespace(
+        benchmark="qasper",
+        mode="sparse",
+        qasper_paper_top_k=1,
+        qasper_paper_collection=None,
+        dataset_id=None,
+        qasper_raw_dataset_id=DEFAULT_QASPER_RAW_DATASET,
+        split="test",
+        cache_dir=None,
+        qasper_query_limit=None,
+        top_n=10,
+        top_k=10,
+        collection=None,
+    )
+
+    restricted, run, _, details = run_public_bench._run_qasper_two_stage(
+        args,
+        argparse.ArgumentParser(),
+        chunks,
+    )
+
+    assert restricted.candidate_ids == {"q1": {"target_0"}}
+    assert run == {"q1": ["target_0"]}
+    assert details["paper_metrics"]["recall@1"] == 1.0
+    assert details["conditional_evidence_metrics"]["queries"] == 1
 
 
 def test_retriever_passes_same_candidate_scope_to_sparse_and_dense():

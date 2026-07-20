@@ -13,6 +13,7 @@ from retrieval.types import Document
 
 DEFAULT_MTEB_DATASET = "scidocs"
 DEFAULT_QASPER_DATASET = "mteb/QASPER"
+DEFAULT_QASPER_RAW_DATASET = "allenai/qasper"
 QASPER_SCOPES = ("global", "paper")
 
 
@@ -354,6 +355,114 @@ def _qasper_paper_id(chunk_id: str) -> str:
     """Return the arXiv paper ID from LMEB's ``<paper>_<chunk>`` ID."""
     paper_id, separator, chunk_number = chunk_id.rpartition("_")
     return paper_id if separator and chunk_number.isdigit() else chunk_id
+
+
+def load_qasper_paper_documents_hf(
+    *,
+    dataset_id: str = DEFAULT_QASPER_RAW_DATASET,
+    split: str = "train+validation+test",
+    cache_dir: str | Path | None = None,
+) -> list[Document]:
+    """Load QASPER's title+abstract records as one document per paper."""
+    paper_table = _load_hf_split(dataset_id, "qasper", split, cache_dir)
+    documents = {}
+    for row in paper_table:
+        paper_id = str(row["id"])
+        title = str(row.get("title") or "")
+        abstract = str(row.get("abstract") or "")
+        documents[paper_id] = Document(
+            paper_id,
+            f"{title} {abstract}".strip(),
+            paper_id,
+            {"title": title},
+        )
+    return list(documents.values())
+
+
+def load_qasper_paper_benchmark_hf(
+    *,
+    dataset_id: str = DEFAULT_QASPER_DATASET,
+    raw_dataset_id: str = DEFAULT_QASPER_RAW_DATASET,
+    split: str = "test",
+    raw_split: str = "train+validation+test",
+    cache_dir: str | Path | None = None,
+    query_limit: int | None = None,
+    chunk_benchmark: Benchmark | None = None,
+) -> Benchmark:
+    """Derive question-to-paper retrieval from LMEB evidence and raw QASPER metadata.
+
+    Evidence chunk IDs encode their source paper. Those source IDs become the
+    paper-level qrels; the raw dataset supplies only the title+abstract corpus.
+    """
+    chunks = chunk_benchmark or load_qasper_hf(
+        scope="global",
+        dataset_id=dataset_id,
+        split=split,
+        cache_dir=cache_dir,
+        query_limit=query_limit,
+    )
+    documents = load_qasper_paper_documents_hf(
+        dataset_id=raw_dataset_id,
+        split=raw_split,
+        cache_dir=cache_dir,
+    )
+    qrels = {
+        query_id: {_qasper_paper_id(chunk_id) for chunk_id in evidence_ids}
+        for query_id, evidence_ids in chunks.qrels.items()
+    }
+    ambiguous = {
+        query_id: paper_ids
+        for query_id, paper_ids in qrels.items()
+        if len(paper_ids) != 1
+    }
+    if ambiguous:
+        query_id = next(iter(ambiguous))
+        raise ValueError(
+            f"QASPER query {query_id} maps to multiple target papers: "
+            f"{sorted(ambiguous[query_id])}"
+        )
+
+    document_ids = {document.doc_id for document in documents}
+    missing = {
+        paper_id
+        for paper_ids in qrels.values()
+        for paper_id in paper_ids
+        if paper_id not in document_ids
+    }
+    if missing:
+        sample = ", ".join(sorted(missing)[:5])
+        raise ValueError(
+            f"raw QASPER title+abstract corpus is missing {len(missing)} LMEB papers: {sample}"
+        )
+
+    return Benchmark(
+        documents,
+        dict(chunks.queries),
+        qrels,
+        {query_id: set() for query_id in chunks.queries},
+        {
+            query_id: {"target_paper_id": next(iter(paper_ids))}
+            for query_id, paper_ids in qrels.items()
+        },
+    )
+
+
+def qasper_chunk_candidates(
+    documents: list[Document],
+    paper_run: dict[str, list[str]],
+) -> dict[str, set[str]]:
+    """Expand retrieved paper IDs into per-query allowed evidence chunk IDs."""
+    chunks_by_paper: dict[str, set[str]] = {}
+    for document in documents:
+        chunks_by_paper.setdefault(document.paper_key, set()).add(document.doc_id)
+    return {
+        query_id: {
+            chunk_id
+            for paper_id in paper_ids
+            for chunk_id in chunks_by_paper.get(paper_id, ())
+        }
+        for query_id, paper_ids in paper_run.items()
+    }
 
 
 def load_qasper_hf(

@@ -103,18 +103,24 @@ a backward-compatible alias.
 
 ### LMEB v4 QASPER chunk retrieval
 
-QASPER supports two directly comparable evidence-retrieval conditions. Both
-conditions use the same questions, paragraph corpus, embeddings, and gold
-evidence labels:
+QASPER supports three evidence-retrieval conditions. All use the same
+questions, paragraph corpus, embeddings, and gold evidence labels:
 
 - `--qasper-scope global` searches all QASPER chunks using only the question.
   This is a custom experiment for testing whether paper retrieval is needed.
 - `--qasper-scope paper` uses LMEB's candidate list to rank only chunks from
   the known target paper. This isolates the Stage 2 chunk retriever.
+- `--qasper-scope two-stage` first retrieves `--qasper-paper-top-k` papers
+  from raw QASPER titles+abstracts, then searches only those papers' chunks.
+  This is the end-to-end funnel diagnostic.
 
 The paper is represented by the candidate restriction; its text is not
 appended to the query. Global results have incomplete labels because QASPER
 annotators marked evidence only inside the original target paper.
+Two-stage results keep those evidence labels unchanged: retrieved chunks are
+predictions, never replacement gold labels. The result JSON reports Stage 1
+paper Recall@1/5/10/20/50, end-to-end evidence metrics, and evidence metrics
+conditioned on Stage 1 retrieving the target paper.
 
 The QASPER result block reports LMEB v4's official nDCG@10 and capped
 Recall@10 in addition to the runner's standard metrics. LMEB v4 also evaluates
@@ -135,10 +141,17 @@ for config in (
     "QASPER-top_ranked",
 ):
     load_dataset("mteb/QASPER", config, split="test", cache_dir="<hf-cache>/datasets")
+
+load_dataset(
+    "allenai/qasper",
+    "qasper",
+    split="train+validation+test",
+    cache_dir="<hf-cache>/datasets",
+)
 ```
 
-Build one dense collection; both scopes reuse it because their chunk corpus is
-identical:
+Build one chunk collection shared by all conditions and one small paper
+collection for two-stage retrieval:
 
 ```bash
 python scripts/build_dense_index.py \
@@ -148,6 +161,16 @@ python scripts/build_dense_index.py \
 python scripts/run_public_bench.py \
   --benchmark qasper --qasper-scope global --cache-dir <hf-cache> \
   --mode dense --qdrant-url http://localhost:6333 --collection qasper-<model>
+
+python scripts/build_dense_index.py \
+  --benchmark qasper --qasper-corpus papers --cache-dir <hf-cache> \
+  --qdrant-url http://localhost:6333 --collection qasper-papers-<model>
+
+python scripts/run_public_bench.py \
+  --benchmark qasper --qasper-scope two-stage --qasper-paper-top-k 20 \
+  --cache-dir <hf-cache> --mode dense --qdrant-url http://localhost:6333 \
+  --collection qasper-<model> \
+  --qasper-paper-collection qasper-papers-<model>
 
 python scripts/run_public_bench.py \
   --benchmark qasper --qasper-scope paper --cache-dir <hf-cache> \
@@ -404,11 +427,15 @@ The main overrides are `CACHE_DIR`, `RESULTS_DIR`, `QDRANT_URL`,
 INCLUDE_QASPER=1 ./scripts/run_all_benchmarks.sh
 ```
 
-The default `QASPER_SCOPE=both` runs both conditions. Select only one with
-`QASPER_SCOPE=global` or `QASPER_SCOPE=paper`:
+The default `QASPER_SCOPE=both` runs the original global and paper conditions.
+Use `QASPER_SCOPE=all` for those plus two-stage, or select one condition with
+`QASPER_SCOPE=global`, `paper`, or `two-stage`:
 
 ```bash
 INCLUDE_QASPER=1 QASPER_SCOPE=global ./scripts/run_all_benchmarks.sh
+
+INCLUDE_QASPER=1 QASPER_SCOPE=two-stage QASPER_PAPER_TOP_K=20 \
+  ./scripts/run_all_benchmarks.sh
 ```
 
 For a locally downloaded QASPER repository, set `QASPER_DIR` to its root:
@@ -422,8 +449,11 @@ INCLUDE_QASPER=1 QASPER_SCOPE=global \
 The default is `$CACHE_DIR/datasets/datasets--mteb--QASPER`. When that path is
 a Hugging Face cache repository, the runner resolves `refs/main` to the actual
 `snapshots/<commit-hash>` directory automatically.
+Set `QASPER_RAW_DATASET_ID` if the raw `allenai/qasper` title+abstract dataset
+is staged under a different local dataset ID or path.
 
-Both conditions reuse the same QASPER dense collection. Set
+All conditions reuse the same QASPER chunk collection. Two-stage additionally
+builds a small `qasper-papers-<model>` title+abstract collection. Set
 `INCLUDE_SCHOLARGYM=1` to append ScholarGym-static to the sweep. It looks in
 `$CACHE_DIR/datasets/datasets--shenhao--ScholarGym` by default; override that with
 `SCHOLARGYM_DIR`, or use the two explicit file variables
@@ -494,8 +524,10 @@ python scripts/plot_benchmark_results.py \
 ```
 
 This writes one file per discovered dataset, such as `litsearch.png`,
-`mteb-scifact.png`, and `scholargym.png`. QASPER's two retrieval conditions are
-kept separate as `qasper-global.png` and `qasper-paper.png`. Each graph compares
+`mteb-scifact.png`, and `scholargym.png`. QASPER's three retrieval conditions are
+kept separate as `qasper-global.png`, `qasper-paper.png`, and
+`qasper-two-stage.png`; `qasper-two-stage-papers.png` plots the Stage 1 paper
+recall metrics. Each graph compares
 every discovered model/pipeline, including BM25, dense, and hybrid, using
 Recall@5/20/50 and nDCG@10. Use `--metrics recall@20,recall@50` for a
 ScholarGym-focused graph.

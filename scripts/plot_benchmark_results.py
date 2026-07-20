@@ -26,7 +26,7 @@ def _benchmark_key(data: dict, path: Path) -> str:
         return f"bright-{config['domain']}"
     if benchmark == "qasper":
         scope = config.get("qasper_scope")
-        if scope in {"global", "paper"}:
+        if scope in {"global", "paper", "two-stage"}:
             return f"qasper-{scope}"
     if benchmark:
         return str(benchmark)
@@ -78,6 +78,20 @@ def load_results(results_dir: str | Path) -> dict[str, list[dict]]:
                 if not isinstance(metrics, dict):
                     continue
                 subset = f"litsearch-average-{specificity}"
+                grouped[(subset, label)] = {
+                    **row,
+                    "benchmark": subset,
+                    "metrics": metrics,
+                }
+
+        if benchmark == "qasper-two-stage":
+            metrics = (
+                data.get("qasper", {})
+                .get("paper_retrieval", {})
+                .get("metrics")
+            )
+            if isinstance(metrics, dict):
+                subset = "qasper-two-stage-papers"
                 grouped[(subset, label)] = {
                     **row,
                     "benchmark": subset,
