@@ -78,6 +78,8 @@ benchmarks=(
   "mteb:scifact"
   "mteb:nfcorpus"
   "mteb:trec-covid"
+  "qasper::global"
+  "qasper::paper"
 )
 
 if [[ "$INCLUDE_SCHOLARGYM" == "1" ]]; then
@@ -89,15 +91,22 @@ MODEL_RESULTS_DIR="$RESULTS_DIR/$MODEL_TAG"
 mkdir -p "$SPARSE_RESULTS_DIR" "$MODEL_RESULTS_DIR"
 
 for spec in "${benchmarks[@]}"; do
-  IFS=: read -r benchmark dataset <<< "$spec"
+  IFS=: read -r benchmark dataset qasper_scope <<< "$spec"
   name="$benchmark${dataset:+-$dataset}"
-  collection="$name-$COLLECTION_TAG"
+  if [[ "$benchmark" == "qasper" ]]; then
+    name="$name-$qasper_scope"
+  fi
+  collection_name="$benchmark${dataset:+-$dataset}"
+  collection="$collection_name-$COLLECTION_TAG"
   if [[ "$name" == "litsearch" && -n "$LITSEARCH_COLLECTION" ]]; then
     collection="$LITSEARCH_COLLECTION"
   fi
   benchmark_args=(--benchmark "$benchmark" --cache-dir "$CACHE_DIR")
   if [[ -n "$dataset" ]]; then
     benchmark_args+=(--dataset "$dataset")
+  fi
+  if [[ "$benchmark" == "qasper" ]]; then
+    benchmark_args+=(--qasper-scope "$qasper_scope")
   fi
   if [[ "$benchmark" == "scholargym" ]]; then
     benchmark_args+=(--scholargym-dir "$SCHOLARGYM_DIR")
