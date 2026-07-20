@@ -297,10 +297,22 @@ def test_plotter_groups_results_by_dataset_and_model_pipeline(tmp_path):
         "config": {"benchmark": "mteb", "dataset": "scifact", "mode": "dense", "embedding_model": "Qwen/Qwen3-Embedding-4B"},
         "metrics": {"ndcg@10": 0.5},
     }))
+    for scope, score in (("global", 0.2), ("paper", 0.6)):
+        (root / "qwen3-embedding-4b" / f"qasper-{scope}-dense.json").write_text(json.dumps({
+            "config": {
+                "benchmark": "qasper",
+                "qasper_scope": scope,
+                "mode": "dense",
+                "embedding_model": "Qwen/Qwen3-Embedding-4B",
+            },
+            "metrics": {"ndcg@10": score},
+        }))
 
     results = load_results(root)
     assert [row["label"] for row in results["litsearch"]] == ["BM25 / sparse"]
     assert results["mteb-scifact"][0]["label"] == "Qwen3-Embedding-4B / dense"
+    assert results["qasper-global"][0]["metrics"]["ndcg@10"] == 0.2
+    assert results["qasper-paper"][0]["metrics"]["ndcg@10"] == 0.6
 
 
 def test_bright_loader_is_strictly_local(monkeypatch, tmp_path):

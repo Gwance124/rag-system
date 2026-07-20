@@ -24,6 +24,10 @@ def _benchmark_key(data: dict, path: Path) -> str:
         return f"mteb-{dataset}"
     if benchmark == "bright" and config.get("domain"):
         return f"bright-{config['domain']}"
+    if benchmark == "qasper":
+        scope = config.get("qasper_scope")
+        if scope in {"global", "paper"}:
+            return f"qasper-{scope}"
     if benchmark:
         return str(benchmark)
     return re.sub(r"-(?:sparse|dense|hybrid)$", "", path.stem)

@@ -494,9 +494,11 @@ python scripts/plot_benchmark_results.py \
 ```
 
 This writes one file per discovered dataset, such as `litsearch.png`,
-`mteb-scifact.png`, and `scholargym.png`. Each graph compares every discovered
-model/pipeline, including BM25, dense, and hybrid, using Recall@5/20/50 and
-nDCG@10. Use `--metrics recall@20,recall@50` for a ScholarGym-focused graph.
+`mteb-scifact.png`, and `scholargym.png`. QASPER's two retrieval conditions are
+kept separate as `qasper-global.png` and `qasper-paper.png`. Each graph compares
+every discovered model/pipeline, including BM25, dense, and hybrid, using
+Recall@5/20/50 and nDCG@10. Use `--metrics recall@20,recall@50` for a
+ScholarGym-focused graph.
 
 If an older staging run put `princeton-nlp___lit_search/` directly under
 `hub/`, move that processed dataset cache into `datasets/` before running
