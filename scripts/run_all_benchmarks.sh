@@ -16,12 +16,21 @@ REBUILD_INDEXES="${REBUILD_INDEXES:-0}"
 FORCE_RERUN="${FORCE_RERUN:-0}"
 INCLUDE_QASPER="${INCLUDE_QASPER:-0}"
 QASPER_SCOPE="${QASPER_SCOPE:-both}"
+QASPER_DIR="${QASPER_DIR:-$CACHE_DIR/datasets/datasets--mteb--QASPER}"
 INCLUDE_SCHOLARGYM="${INCLUDE_SCHOLARGYM:-0}"
 SCHOLARGYM_DIR="${SCHOLARGYM_DIR:-$CACHE_DIR/datasets/datasets--shenhao--ScholarGym}"
 SCHOLARGYM_PAPER_DB="${SCHOLARGYM_PAPER_DB:-}"
 SCHOLARGYM_BENCHMARK_JSONL="${SCHOLARGYM_BENCHMARK_JSONL:-}"
 PYTHON_BIN="${PYTHON_BIN:-python}"
 AUTO_DETECT_MODEL="${AUTO_DETECT_MODEL:-1}"
+
+if [[ -f "$QASPER_DIR/refs/main" ]]; then
+  qasper_revision="$(<"$QASPER_DIR/refs/main")"
+  qasper_snapshot="$QASPER_DIR/snapshots/$qasper_revision"
+  if [[ -d "$qasper_snapshot" ]]; then
+    QASPER_DIR="$qasper_snapshot"
+  fi
+fi
 
 if [[ "$AUTO_DETECT_MODEL" == "1" ]]; then
   models_url="${EMBEDDING_URL%/}/models"
@@ -119,6 +128,9 @@ for spec in "${benchmarks[@]}"; do
   benchmark_args=(--benchmark "$benchmark" --cache-dir "$CACHE_DIR")
   if [[ -n "$dataset" ]]; then
     benchmark_args+=(--dataset "$dataset")
+  fi
+  if [[ "$benchmark" == "qasper" && -d "$QASPER_DIR" ]]; then
+    benchmark_args+=(--dataset-id "$QASPER_DIR")
   fi
   if [[ "$benchmark" == "scholargym" ]]; then
     benchmark_args+=(--scholargym-dir "$SCHOLARGYM_DIR")

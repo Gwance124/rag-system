@@ -411,6 +411,18 @@ The default `QASPER_SCOPE=both` runs both conditions. Select only one with
 INCLUDE_QASPER=1 QASPER_SCOPE=global ./scripts/run_all_benchmarks.sh
 ```
 
+For a locally downloaded QASPER repository, set `QASPER_DIR` to its root:
+
+```bash
+INCLUDE_QASPER=1 QASPER_SCOPE=global \
+  QASPER_DIR=/path/to/datasets--mteb--QASPER \
+  ./scripts/run_all_benchmarks.sh
+```
+
+The default is `$CACHE_DIR/datasets/datasets--mteb--QASPER`. When that path is
+a Hugging Face cache repository, the runner resolves `refs/main` to the actual
+`snapshots/<commit-hash>` directory automatically.
+
 Both conditions reuse the same QASPER dense collection. Set
 `INCLUDE_SCHOLARGYM=1` to append ScholarGym-static to the sweep. It looks in
 `$CACHE_DIR/datasets/datasets--shenhao--ScholarGym` by default; override that with
