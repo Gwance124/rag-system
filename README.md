@@ -119,7 +119,7 @@ appended to the query. Global results have incomplete labels because QASPER
 annotators marked evidence only inside the original target paper.
 Two-stage results keep those evidence labels unchanged: retrieved chunks are
 predictions, never replacement gold labels. The result JSON reports Stage 1
-paper Recall@1/5/10/20/50, end-to-end evidence metrics, and evidence metrics
+paper Recall@1/5/10/20/50/100/200, end-to-end evidence metrics, and evidence metrics
 conditioned on Stage 1 retrieving the target paper.
 
 The QASPER result block reports LMEB v4's official nDCG@10 and capped
@@ -544,7 +544,9 @@ This writes one file per discovered dataset, such as `litsearch.png`,
 `mteb-scifact.png`, and `scholargym.png`. QASPER's three retrieval conditions are
 kept separate as `qasper-global.png`, `qasper-paper.png`, and
 `qasper-two-stage.png`; `qasper-two-stage-papers.png` plots the Stage 1 paper
-recall metrics. Each graph compares
+recall curve once per model/mode (K does not change the Stage 1 ranking). Use
+`--metrics recall@20,recall@50,recall@100,recall@200` to inspect deeper paper
+cutoffs. Each graph compares
 every discovered model/pipeline, including BM25, dense, and hybrid, using
 Recall@5/20/50 and nDCG@10. Use `--metrics recall@20,recall@50` for a
 ScholarGym-focused graph.

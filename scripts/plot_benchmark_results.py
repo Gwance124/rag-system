@@ -97,10 +97,16 @@ def load_results(results_dir: str | Path) -> dict[str, list[dict]]:
             )
             if isinstance(metrics, dict):
                 subset = "qasper-two-stage-papers"
-                grouped[(subset, label)] = {
+                paper_label = f"{model} / {mode}"
+                existing = grouped.get((subset, paper_label))
+                grouped[(subset, paper_label)] = {
                     **row,
                     "benchmark": subset,
-                    "metrics": metrics,
+                    "label": paper_label,
+                    "metrics": {
+                        **(existing["metrics"] if existing else {}),
+                        **metrics,
+                    },
                 }
 
     output: dict[str, list[dict]] = {}

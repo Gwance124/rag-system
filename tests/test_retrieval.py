@@ -357,7 +357,9 @@ def test_plotter_groups_results_by_dataset_and_model_pipeline(tmp_path):
     two_stage = {row["label"]: row for row in results["qasper-two-stage"]}
     assert two_stage["Qwen3-Embedding-4B / dense / paper-k=20"]["metrics"]["ndcg@10"] == 0.4
     assert two_stage["Qwen3-Embedding-4B / dense / paper-k=100"]["metrics"]["ndcg@10"] == 0.45
-    assert len(results["qasper-two-stage-papers"]) == 2
+    assert [row["label"] for row in results["qasper-two-stage-papers"]] == [
+        "Qwen3-Embedding-4B / dense"
+    ]
 
 
 def test_bright_loader_is_strictly_local(monkeypatch, tmp_path):

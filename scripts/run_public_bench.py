@@ -397,7 +397,7 @@ def _run_qasper_two_stage(
         file=sys.stderr,
         flush=True,
     )
-    paper_ranking_depth = max(50, args.qasper_paper_top_k)
+    paper_ranking_depth = max(200, args.qasper_paper_top_k)
     paper_retriever = _build_retriever(
         args,
         parser,
@@ -445,7 +445,7 @@ def _run_qasper_two_stage(
         "paper_metrics": evaluate_run(
             paper_run,
             papers.qrels,
-            ks=(1, 5, 10, 20, 50),
+            ks=(1, 5, 10, 20, 50, 100, 200),
         ),
         "conditional_evidence_metrics": {
             **evaluate_run(
