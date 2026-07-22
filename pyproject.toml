@@ -12,6 +12,12 @@ eval = [
     "transformers>=5.0",
 ]
 staging = ["huggingface-hub>=0.30"]
+search = [
+    "datasets>=4.0",
+    "faiss-cpu>=1.8",
+    "numpy>=1.26",
+    "transformers>=5.0",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

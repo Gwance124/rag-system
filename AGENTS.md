@@ -6,6 +6,13 @@ This repository is being rebuilt as a local RAG systems research project. The
 active design is documented in
 `docs/plans/2026-07-21-rag-systems-four-week-plan.md`.
 
+The current execution state and the latest decisions that supersede stale
+parts of that plan are documented in
+`docs/progress/2026-07-22-qwen3-embedding-baseline-handoff.md`. Read that
+handoff before proposing commands or changing the experiment. In particular,
+the official Qwen3-Embedding-8B retrieval reproduction has passed, and the
+next gate is a dynamic BrowseComp-Plus Standard search call.
+
 `old/` is an archive of the scientific-retrieval and LaTeX-chunking work. Do
 not add features there, import it from new code, or use QASPER as a benchmark
 for the new study. Port a small legacy primitive into the active package only
@@ -36,19 +43,22 @@ split and do not inspect held-out results while tuning. WixQA is only a backup
 pipeline sanity check. Do not introduce QASPER or TREC RAG into the new
 experiments.
 
-Week 1 is limited to the instrumented single-pass pipeline: one question, one
-retrieval, one frozen ranking, deterministic token-budget packing, and one
-generation call. Do not add query rewriting, reranking, repeated retrieval,
-agent loops, subagents, concurrency experiments, adaptive context selection,
-or an LLM judge before that baseline passes its acceptance tests.
+Week 1 now targets the instrumented BrowseComp-Plus Standard baseline:
+Qwen3.6-27B, Qwen3-Embedding-8B with the official precomputed document index,
+a search-only tool returning top 5 results, and at most 512 tokens per result.
+Do not add `get_document`, custom chunking, reranking, context-budget sweeps,
+subagents, concurrency experiments, or an LLM judge before that baseline
+passes. The fixed-query retrieval-only reproduction is complete; dynamic
+search and generation are not yet implemented in the active package.
 
-All measurement runs use the dedicated 1x A100 80 GB on `solab-g3`, with the
-pinned local `Qwen/Qwen3.5-27B` snapshot, vLLM, FlashInfer, and a frozen launch
-command. Dataset preparation, retrieval, and benchmark orchestration run on
-`solab-p7`. Never use the shared 4x H200 endpoint for reported measurements.
-Prefix caching is disabled for the initial experiments. Discover and save the
-installed vLLM `/metrics` surface; do not hard-code metric names without
-version-aware validation.
+Measurement hardware is the two-A100 80 GB `solab-g3` host: use the PCIe A100
+for Qwen3-Embedding-8B retrieval and the SXM4 A100 for Qwen3.6-27B generation.
+Dataset preparation, orchestration, and result ownership remain on CPU-only
+`solab-p7`. Run a Qwen3-32B judge later and sequentially, not concurrently with
+the generator/retriever baseline. Never use the shared 4x H200 endpoint for
+reported measurements. Prefix caching is disabled initially. Discover and
+save the installed vLLM `/metrics` surface; do not hard-code metric names
+without version-aware validation.
 
 Every run must be reproducible from a manifest. Pin dataset, model, tokenizer,
 and software revisions; hash chunk, index, ranking, prompt, and split artifacts;

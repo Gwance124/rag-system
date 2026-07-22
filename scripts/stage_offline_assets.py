@@ -19,10 +19,10 @@ from rag_system.offline_assets import (
 )
 
 
-MODEL_ID = "Qwen/Qwen3.5-27B"
-MODEL_REVISION = "fc05daec18b0a78c049392ed2e771dde82bdf654"
-MODEL_RELATIVE_PATH = "models/Qwen--Qwen3.5-27B"
-TOKENIZER_RELATIVE_PATH = "tokenizers/Qwen--Qwen3.5-27B"
+MODEL_ID = "Qwen/Qwen3.6-27B"
+MODEL_REVISION = "6a9e13bd6fc8f0983b9b99948120bc37f49c13e9"
+MODEL_RELATIVE_PATH = "models/Qwen--Qwen3.6-27B"
+TOKENIZER_RELATIVE_PATH = "tokenizers/Qwen--Qwen3.6-27B"
 QUERY_RELATIVE_PATH = "datasets/Tevatron--browsecomp-plus"
 CORPUS_RELATIVE_PATH = "datasets/Tevatron--browsecomp-plus-corpus"
 TOKENIZER_FILES = (
@@ -134,7 +134,7 @@ def main() -> None:
 
     if "tokenizer" in selected:
         print(f"staging tokenizer {MODEL_ID}@{MODEL_REVISION}", flush=True)
-        assets["qwen3_5_27b_tokenizer"] = _download(
+        assets["qwen3_6_27b_tokenizer"] = _download(
             output_root,
             repo_id=MODEL_ID,
             repo_type="model",
@@ -147,7 +147,7 @@ def main() -> None:
 
     if "model" in selected:
         print(f"staging model {MODEL_ID}@{MODEL_REVISION}", flush=True)
-        assets["qwen3_5_27b_model"] = _download(
+        assets["qwen3_6_27b_model"] = _download(
             output_root,
             repo_id=MODEL_ID,
             repo_type="model",

@@ -22,6 +22,35 @@ class CorpusDocument:
 
 
 @dataclass(frozen=True)
+class SearchCandidate:
+    """Full-text document returned by the underlying document retriever."""
+
+    document_id: str
+    score: float
+    text: str
+
+
+@dataclass(frozen=True)
+class StandardSearchHit:
+    """One document exposed to the agent by the Standard search tool."""
+
+    document_id: str
+    score: float
+    snippet: str
+    snippet_token_count: int
+
+
+@dataclass(frozen=True)
+class StandardSearchTrace:
+    """Validated output of one BrowseComp-Plus Standard search call."""
+
+    query: str
+    top_k: int
+    snippet_max_tokens: int
+    hits: tuple[StandardSearchHit, ...]
+
+
+@dataclass(frozen=True)
 class DatasetSplit:
     seed: str
     algorithm: str

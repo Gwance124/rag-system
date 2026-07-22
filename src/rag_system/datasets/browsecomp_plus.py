@@ -348,9 +348,20 @@ class BrowseCompPlusLoader:
         return [query_from_encrypted_row(row, self.password) for row in dataset]
 
     def iter_corpus(self) -> Iterator[CorpusDocument]:
-        dataset = _load_local_parquet(self.corpus_repository, "train", self.cache_dir)
-        for row in dataset:
-            yield corpus_document_from_row(row)
+        yield from iter_corpus_repository(self.corpus_repository, cache_dir=self.cache_dir)
+
+
+def iter_corpus_repository(
+    corpus_repository: str | Path,
+    *,
+    cache_dir: str | Path | None = None,
+) -> Iterator[CorpusDocument]:
+    """Stream the canonical corpus from a transferred local snapshot."""
+    repository = Path(corpus_repository).expanduser().resolve()
+    resolved_cache = Path(cache_dir).expanduser().resolve() if cache_dir else None
+    dataset = _load_local_parquet(repository, "train", resolved_cache)
+    for row in dataset:
+        yield corpus_document_from_row(row)
 
 
 def _atomic_private_write(path: Path, content: str) -> None:

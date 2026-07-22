@@ -11,8 +11,8 @@ local Parquet and model/tokenizer files only.
 | --- | --- | --- | --- |
 | Queries, answers, labels | `Tevatron/browsecomp-plus` | `144cff8e35b5eaef7e526346aa60774a9deb941f` | `solab-p7` |
 | Canonical corpus | `Tevatron/browsecomp-plus-corpus` | `b27b02bc3e45511b8b82a13e6f90ce761df726f6` | `solab-p7` |
-| Qwen tokenizer/config | `Qwen/Qwen3.5-27B` | `fc05daec18b0a78c049392ed2e771dde82bdf654` | `solab-p7` |
-| Qwen3.5-27B model | `Qwen/Qwen3.5-27B` | `fc05daec18b0a78c049392ed2e771dde82bdf654` | `solab-g3` |
+| Qwen tokenizer/config | `Qwen/Qwen3.6-27B` | `6a9e13bd6fc8f0983b9b99948120bc37f49c13e9` | `solab-p7` |
+| Qwen3.6-27B model | `Qwen/Qwen3.6-27B` | `6a9e13bd6fc8f0983b9b99948120bc37f49c13e9` | `solab-g3` |
 
 The model snapshot is roughly 56 GB. The query dataset is large because it
 contains encrypted copies of evidence, gold, and negative document text. The
@@ -60,9 +60,9 @@ rag-offline-assets/
     Tevatron--browsecomp-plus/
     Tevatron--browsecomp-plus-corpus/
   tokenizers/
-    Qwen--Qwen3.5-27B/
+    Qwen--Qwen3.6-27B/
   models/
-    Qwen--Qwen3.5-27B/
+    Qwen--Qwen3.6-27B/
 ```
 
 ## 2. Copy to the two servers
@@ -100,7 +100,7 @@ export RAG_OFFLINE_ROOT="<p7-offline-root>"
 export RAG_ARTIFACT_ROOT="<p7-artifact-root>"
 export RAG_BROWSECOMP_QUERIES_DIR="$RAG_OFFLINE_ROOT/datasets/Tevatron--browsecomp-plus"
 export RAG_BROWSECOMP_CORPUS_DIR="$RAG_OFFLINE_ROOT/datasets/Tevatron--browsecomp-plus-corpus"
-export RAG_TOKENIZER_PATH="$RAG_OFFLINE_ROOT/tokenizers/Qwen--Qwen3.5-27B"
+export RAG_TOKENIZER_PATH="$RAG_OFFLINE_ROOT/tokenizers/Qwen--Qwen3.6-27B"
 export HF_HUB_OFFLINE=1
 export HF_DATASETS_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
@@ -148,7 +148,7 @@ Then verify the transferred model and launch:
 
 ```bash
 export RAG_OFFLINE_ROOT="<g3-offline-root>"
-export RAG_MODEL_PATH="$RAG_OFFLINE_ROOT/models/Qwen--Qwen3.5-27B"
+export RAG_MODEL_PATH="$RAG_OFFLINE_ROOT/models/Qwen--Qwen3.6-27B"
 
 python scripts/verify_offline_assets.py \
   --root "$RAG_OFFLINE_ROOT" \
@@ -159,7 +159,7 @@ python scripts/verify_offline_assets.py \
 
 The initial single-A100 configuration is deliberately conservative:
 
-- local BF16 Qwen3.5-27B weights;
+- local BF16 Qwen3.6-27B weights;
 - tensor parallel size 1;
 - text-only `--language-model-only` mode;
 - FlashInfer selected explicitly rather than silently auto-selected;
@@ -208,7 +208,7 @@ not ad hoc notes.
 
 ## Official references
 
-- [Qwen3.5-27B model card](https://huggingface.co/Qwen/Qwen3.5-27B)
+- [Qwen3.6-27B model card](https://huggingface.co/Qwen/Qwen3.6-27B)
 - [BrowseComp-Plus query dataset](https://huggingface.co/datasets/Tevatron/browsecomp-plus)
 - [BrowseComp-Plus corpus dataset](https://huggingface.co/datasets/Tevatron/browsecomp-plus-corpus)
 - [vLLM Qwen3.5 recipe](https://github.com/vllm-project/recipes/blob/main/Qwen/Qwen3.5.md)

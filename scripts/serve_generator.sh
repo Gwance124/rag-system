@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-: "${RAG_MODEL_PATH:?Set RAG_MODEL_PATH to the transferred Qwen3.5-27B directory}"
+: "${RAG_MODEL_PATH:?Set RAG_MODEL_PATH to the transferred Qwen3.6-27B directory}"
 
 if [[ ! -d "$RAG_MODEL_PATH" ]]; then
   echo "Model directory does not exist: $RAG_MODEL_PATH" >&2
@@ -17,7 +17,7 @@ done
 PYTHON_BIN="${PYTHON_BIN:-python}"
 VLLM_HOST="${VLLM_HOST:-0.0.0.0}"
 VLLM_PORT="${VLLM_PORT:-8000}"
-VLLM_SERVED_MODEL_NAME="${VLLM_SERVED_MODEL_NAME:-qwen3.5-27b}"
+VLLM_SERVED_MODEL_NAME="${VLLM_SERVED_MODEL_NAME:-qwen3.6-27b}"
 VLLM_MAX_MODEL_LEN="${VLLM_MAX_MODEL_LEN:-65536}"
 VLLM_GPU_MEMORY_UTILIZATION="${VLLM_GPU_MEMORY_UTILIZATION:-0.90}"
 VLLM_MAX_NUM_SEQS="${VLLM_MAX_NUM_SEQS:-4}"
