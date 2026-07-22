@@ -75,15 +75,24 @@ class StandardAgentWorkflow:
         results: list[dict[str, Any]] = []
         retrieved_docids: set[str] = set()
         usage_rows = []
+        generation_steps = []
         search_calls = 0
         status = "incomplete"
+        termination_reason = "unknown"
 
-        for _ in range(self.max_search_calls + 1):
+        for step_index in range(self.max_search_calls + 1):
             completion = self.chat_client.complete(messages, SEARCH_TOOLS)
             message = completion.get("message")
             if not isinstance(message, dict):
                 raise ValueError("chat client returned an invalid message")
             usage_rows.append(completion.get("usage"))
+            generation_steps.append(
+                {
+                    "step": step_index,
+                    "finish_reason": completion.get("finish_reason"),
+                    "usage": completion.get("usage"),
+                }
+            )
             tool_calls = message.get("tool_calls") or []
 
             assistant_message: dict[str, Any] = {
@@ -95,6 +104,8 @@ class StandardAgentWorkflow:
             messages.append(assistant_message)
 
             reasoning = message.get("reasoning_content")
+            if not isinstance(reasoning, str):
+                reasoning = message.get("reasoning")
             if isinstance(reasoning, str) and reasoning.strip():
                 results.append(
                     {
@@ -117,6 +128,11 @@ class StandardAgentWorkflow:
                         }
                     )
                     status = "completed"
+                    termination_reason = "final_answer"
+                elif completion.get("finish_reason") == "length":
+                    termination_reason = "max_output_tokens"
+                else:
+                    termination_reason = "empty_or_unusable_assistant_message"
                 break
 
             for tool_call in tool_calls:
@@ -143,6 +159,7 @@ class StandardAgentWorkflow:
                     }
                 )
             if search_calls >= self.max_search_calls:
+                termination_reason = "max_search_calls"
                 break
 
         return {
@@ -155,6 +172,8 @@ class StandardAgentWorkflow:
             "diagnostics": {
                 "max_search_calls": self.max_search_calls,
                 "generation_usage": usage_rows,
+                "generation_steps": generation_steps,
+                "termination_reason": termination_reason,
             },
         }
 

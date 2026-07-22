@@ -52,9 +52,14 @@ class VllmChatClient:
         except (OSError, urllib.error.HTTPError, json.JSONDecodeError) as exc:
             raise VllmChatError(f"vLLM chat request failed: {exc}") from exc
         try:
-            message = result["choices"][0]["message"]
+            choice = result["choices"][0]
+            message = choice["message"]
         except (KeyError, IndexError, TypeError) as exc:
             raise VllmChatError("vLLM response has no assistant message") from exc
         if not isinstance(message, dict):
             raise VllmChatError("vLLM assistant message is invalid")
-        return {"message": message, "usage": result.get("usage")}
+        return {
+            "message": message,
+            "usage": result.get("usage"),
+            "finish_reason": choice.get("finish_reason"),
+        }

@@ -54,6 +54,7 @@ def test_standard_agent_runs_search_then_saves_official_shape():
                     ],
                 },
                 "usage": {"prompt_tokens": 10},
+                "finish_reason": "tool_calls",
             },
             {
                 "message": {
@@ -61,6 +62,7 @@ def test_standard_agent_runs_search_then_saves_official_shape():
                     "content": "Explanation: result [0].\nExact Answer: answer\nConfidence: 90%",
                 },
                 "usage": {"prompt_tokens": 20},
+                "finish_reason": "stop",
             },
         ]
     )
@@ -71,6 +73,8 @@ def test_standard_agent_runs_search_then_saves_official_shape():
     assert record["tool_call_counts"] == {"search": 1}
     assert record["retrieved_docids"] == ["d0", "d1", "d2", "d3", "d4"]
     assert record["result"][-1]["type"] == "output_text"
+    assert record["diagnostics"]["termination_reason"] == "final_answer"
+    assert record["diagnostics"]["generation_steps"][0]["finish_reason"] == "tool_calls"
     assert search.queries == ["focused search"]
     second_messages = chat.requests[1][0]
     assert second_messages[-1]["role"] == "tool"
@@ -109,3 +113,24 @@ def test_standard_agent_does_not_accept_answer_without_search():
     record = StandardAgentWorkflow(chat, FakeSearchClient()).run(query())
     assert record["status"] == "incomplete"
     assert record["result"] == []
+
+
+def test_standard_agent_records_output_token_exhaustion():
+    chat = FakeChatClient(
+        [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": None,
+                    "reasoning": "Still thinking.",
+                },
+                "usage": {"completion_tokens": 10_000},
+                "finish_reason": "length",
+            }
+        ]
+    )
+    record = StandardAgentWorkflow(chat, FakeSearchClient()).run(query())
+
+    assert record["status"] == "incomplete"
+    assert record["result"][0]["type"] == "reasoning"
+    assert record["diagnostics"]["termination_reason"] == "max_output_tokens"

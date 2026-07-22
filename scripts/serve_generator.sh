@@ -69,6 +69,13 @@ args=(
 # VLLM_ATTENTION_BACKEND; optional serve flags are added only when supported by
 # the exact installed build and their absence is recorded rather than hidden.
 VLLM_SERVE_HELP="$(vllm serve --help 2>&1)"
+VLLM_VERSION="$(vllm --version 2>&1 || true)"
+
+if [[ "$VLLM_TOOL_CALL_PARSER" == "qwen3_coder" && "$VLLM_SERVE_HELP" != *"qwen3_coder"* ]]; then
+  echo "Installed $VLLM_VERSION does not provide the qwen3_coder tool-call parser." >&2
+  echo "Upgrade the generator vLLM environment; do not substitute hermes for a Qwen3.6 benchmark run." >&2
+  exit 2
+fi
 
 supports_vllm_flag() {
   [[ "$VLLM_SERVE_HELP" == *"$1"* ]]

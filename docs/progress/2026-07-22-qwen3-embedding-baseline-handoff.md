@@ -322,6 +322,20 @@ back to zero image/video limits when supported; and optional request/load
 metrics flags are included only when present in `vllm serve --help`. Missing
 telemetry remains explicitly warned and must not be synthesized later.
 
+The installed g3 vLLM build also rejected `qwen3_coder` and listed only older
+tool parsers. This is a hard incompatibility with the Qwen3.6 baseline, not a
+flag-name difference: upgrade vLLM in a separate generator environment and
+verify that `vllm serve --help` lists `qwen3_coder`. Do not substitute the
+`hermes` parser. The launcher now checks this before loading model weights.
+
+The first live query (`703`) completed two valid Standard search round trips
+but its third generation stopped at exactly 10,000 completion tokens while
+still reasoning. The saved record is correctly `status=incomplete` and is not
+a passing smoke result. The runner now records each response's `finish_reason`,
+accepts both vLLM reasoning field names, and reports an explicit termination
+reason. Preserve this failed artifact and rerun in a new output directory with
+a 20,000-token per-turn allowance before changing any other baseline setting.
+
 ## Meaning of agent leaderboard Recall (%)
 
 The end-to-end leaderboard's `Recall (%)` has no fixed `K`. For query `q`, the

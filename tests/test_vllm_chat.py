@@ -15,7 +15,12 @@ class FakeResponse:
     def read(self):
         return json.dumps(
             {
-                "choices": [{"message": {"role": "assistant", "content": "answer"}}],
+                "choices": [
+                    {
+                        "message": {"role": "assistant", "content": "answer"},
+                        "finish_reason": "stop",
+                    }
+                ],
                 "usage": {"prompt_tokens": 10, "completion_tokens": 2},
             }
         ).encode()
@@ -40,3 +45,4 @@ def test_vllm_chat_sends_auto_search_tool_request(monkeypatch):
     assert captured["payload"]["chat_template_kwargs"] == {"enable_thinking": True}
     assert captured["payload"]["seed"] == 3
     assert result["message"]["content"] == "answer"
+    assert result["finish_reason"] == "stop"
