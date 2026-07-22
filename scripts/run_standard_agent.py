@@ -52,6 +52,11 @@ def main() -> None:
     parser.add_argument("--max-search-calls", type=int, default=20)
     parser.add_argument("--max-output-tokens", type=int, default=10_000)
     parser.add_argument("--generator-timeout-seconds", type=float, default=2400.0)
+    parser.add_argument(
+        "--thinking-token-budget",
+        type=int,
+        help="optional vLLM reasoning cap; omit for the upstream-comparable baseline",
+    )
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--quiet-progress", action="store_true")
     parser.add_argument("--force", action="store_true")
@@ -76,6 +81,7 @@ def main() -> None:
         max_output_tokens=args.max_output_tokens,
         seed=args.seed,
         timeout_seconds=args.generator_timeout_seconds,
+        thinking_token_budget=args.thinking_token_budget,
     )
     started_at = time.monotonic()
 
@@ -101,6 +107,12 @@ def main() -> None:
             message = (
                 f"turn {event['turn']}: generating "
                 f"({event['completed_search_calls']} searches completed)"
+            )
+        elif name == "run_started":
+            message = (
+                f"run started max_output_tokens={event['max_output_tokens']} "
+                f"thinking_token_budget={event['thinking_token_budget']} "
+                f"generator_timeout_seconds={event['generator_timeout_seconds']}"
             )
         elif name == "generation_completed":
             usage = event.get("usage") or {}
@@ -152,6 +164,14 @@ def main() -> None:
         max_search_calls=args.max_search_calls,
         progress_callback=progress,
     )
+    progress(
+        {
+            "event": "run_started",
+            "max_output_tokens": args.max_output_tokens,
+            "thinking_token_budget": args.thinking_token_budget,
+            "generator_timeout_seconds": args.generator_timeout_seconds,
+        }
+    )
     try:
         record = workflow.run(query)
     except Exception as exc:
@@ -172,6 +192,7 @@ def main() -> None:
         "seed": args.seed,
         "max_output_tokens": args.max_output_tokens,
         "generator_timeout_seconds": args.generator_timeout_seconds,
+        "thinking_token_budget": args.thinking_token_budget,
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
     }
     atomic_private_json(output_path, record)

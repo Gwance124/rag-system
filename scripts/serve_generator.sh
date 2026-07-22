@@ -23,6 +23,7 @@ VLLM_GPU_MEMORY_UTILIZATION="${VLLM_GPU_MEMORY_UTILIZATION:-0.90}"
 VLLM_MAX_NUM_SEQS="${VLLM_MAX_NUM_SEQS:-4}"
 VLLM_ATTENTION_BACKEND="${VLLM_ATTENTION_BACKEND:-FLASHINFER}"
 VLLM_TOOL_CALL_PARSER="${VLLM_TOOL_CALL_PARSER:-qwen3_coder}"
+VLLM_REASONING_CONFIG="${VLLM_REASONING_CONFIG:-{\"reasoning_start_str\":\"<think>\",\"reasoning_end_str\":\"</think>\"}}"
 
 export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
@@ -88,6 +89,12 @@ elif supports_vllm_flag "--limit-mm-per-prompt"; then
   echo "vLLM lacks --language-model-only; disabling image/video with --limit-mm-per-prompt" >&2
 else
   echo "Warning: this vLLM cannot explicitly disable the multimodal encoder" >&2
+fi
+
+if supports_vllm_flag "--reasoning-config"; then
+  args+=(--reasoning-config "$VLLM_REASONING_CONFIG")
+else
+  echo "Warning: this vLLM cannot enforce --thinking-token-budget" >&2
 fi
 
 if supports_vllm_flag "--enable-per-request-metrics"; then

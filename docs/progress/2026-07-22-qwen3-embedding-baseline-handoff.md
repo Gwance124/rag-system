@@ -343,6 +343,24 @@ runner now defaults to a 2,400-second generator timeout and records it in run
 metadata. Generation/search failures also retain partial trajectory state
 instead of incorrectly reporting zero searches and zero retrieved documents.
 
+The completed 20,000-token diagnostic reproduced the same first two searches
+and then spent 1,130.7 seconds generating exactly 20,000 reasoning tokens on
+turn three without a tool call or answer. Increasing the cap therefore does
+not fix query `703`; it only doubles the cost of its runaway reasoning. The
+upstream BrowseComp-Plus Qwen client uses `temperature=0.7`, `top_p=0.8`, and
+`max_tokens=10000`, matching the original local settings. Keep 10,000 as the
+upstream-comparable baseline cap and score `703` incomplete if it reaches that
+limit. Treat a vLLM `thinking_token_budget` as a separately named decoding
+experiment, not a silent baseline change.
+
+The tail of query `703` confirms a short three-query phrase cycle repeated
+inside the reasoning block. This is decoding degeneration, not productive
+reasoning. The runner now exposes an optional `--thinking-token-budget`, and
+the generator launcher supplies vLLM's `<think>`/`</think>` reasoning boundary
+configuration when supported. Use a 4,096-token budget only in a separately
+named bounded-reasoning diagnostic; the flag remains unset by default for the
+upstream-comparable run.
+
 ## Meaning of agent leaderboard Recall (%)
 
 The end-to-end leaderboard's `Recall (%)` has no fixed `K`. For query `q`, the

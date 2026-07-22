@@ -36,7 +36,12 @@ def test_vllm_chat_sends_auto_search_tool_request(monkeypatch):
         return FakeResponse()
 
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
-    client = VllmChatClient("http://generator.test/v1", "qwen3.6-27b", seed=3)
+    client = VllmChatClient(
+        "http://generator.test/v1",
+        "qwen3.6-27b",
+        seed=3,
+        thinking_token_budget=4096,
+    )
     result = client.complete([{"role": "user", "content": "q"}], [{"tool": "x"}])
 
     assert captured["url"] == "http://generator.test/v1/chat/completions"
@@ -44,5 +49,6 @@ def test_vllm_chat_sends_auto_search_tool_request(monkeypatch):
     assert captured["payload"]["parallel_tool_calls"] is False
     assert captured["payload"]["chat_template_kwargs"] == {"enable_thinking": True}
     assert captured["payload"]["seed"] == 3
+    assert captured["payload"]["thinking_token_budget"] == 4096
     assert result["message"]["content"] == "answer"
     assert result["finish_reason"] == "stop"

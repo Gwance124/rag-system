@@ -22,6 +22,7 @@ class VllmChatClient:
     top_p: float = 0.8
     seed: int = 0
     timeout_seconds: float = 900.0
+    thinking_token_budget: int | None = None
 
     def complete(
         self,
@@ -40,6 +41,10 @@ class VllmChatClient:
             "seed": self.seed,
             "chat_template_kwargs": {"enable_thinking": True},
         }
+        if self.thinking_token_budget is not None:
+            if self.thinking_token_budget <= 0:
+                raise ValueError("thinking_token_budget must be positive")
+            payload["thinking_token_budget"] = self.thinking_token_budget
         request = urllib.request.Request(
             f"{self.base_url.rstrip('/')}/chat/completions",
             data=json.dumps(payload).encode("utf-8"),

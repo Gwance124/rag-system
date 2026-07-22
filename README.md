@@ -171,6 +171,13 @@ while a reasoning turn is in progress. The 2,400-second timeout accommodates a
 generation or search request still fails, the final error record preserves all
 previously completed searches, retrieved document IDs, and per-turn metrics.
 
+For an explicitly separate bounded-reasoning diagnostic, restart the generator
+with the launcher's vLLM reasoning configuration and pass
+`--thinking-token-budget 4096` to the agent runner. This forces a `</think>`
+transition after 4,096 reasoning tokens while leaving up to the configured
+`--max-output-tokens` for a tool call or final answer. Omit the flag for the
+upstream-comparable BrowseComp-Plus Qwen baseline.
+
 ## Tests
 
 ```bash
