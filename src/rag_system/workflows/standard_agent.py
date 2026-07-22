@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import math
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -57,11 +59,37 @@ class SearchClient(Protocol):
     def search(self, query: str) -> list[dict[str, Any]]: ...
 
 
+def _ranked_label_metrics(
+    ranked_document_ids: Iterable[str],
+    relevant_document_ids: Iterable[str],
+) -> dict[str, Any]:
+    ranked = list(ranked_document_ids)
+    relevant = set(relevant_document_ids)
+    if not relevant:
+        return {"relevant": 0, "hits": 0, "recall": None, "ndcg": None}
+    relevance = [1 if document_id in relevant else 0 for document_id in ranked]
+    hits = sum(relevance)
+    dcg = sum(value / math.log2(rank + 2) for rank, value in enumerate(relevance))
+    ideal_hits = min(len(relevant), len(ranked))
+    idcg = sum(1 / math.log2(rank + 2) for rank in range(ideal_hits))
+    return {
+        "relevant": len(relevant),
+        "hits": hits,
+        "recall": hits / len(relevant),
+        "ndcg": dcg / idcg,
+    }
+
+
 @dataclass(frozen=True)
 class StandardAgentWorkflow:
     chat_client: ChatClient
     search_client: SearchClient
     max_search_calls: int = 20
+    progress_callback: Callable[[dict[str, Any]], None] | None = None
+
+    def _progress(self, event: str, **details: Any) -> None:
+        if self.progress_callback is not None:
+            self.progress_callback({"event": event, **details})
 
     def run(self, query: BenchmarkQuery) -> dict[str, Any]:
         if self.max_search_calls <= 0:
@@ -76,12 +104,30 @@ class StandardAgentWorkflow:
         retrieved_docids: set[str] = set()
         usage_rows = []
         generation_steps = []
+        search_steps = []
         search_calls = 0
         status = "incomplete"
         termination_reason = "unknown"
+        run_error: dict[str, str] | None = None
 
         for step_index in range(self.max_search_calls + 1):
-            completion = self.chat_client.complete(messages, SEARCH_TOOLS)
+            self._progress(
+                "generation_started",
+                turn=step_index + 1,
+                completed_search_calls=search_calls,
+            )
+            try:
+                completion = self.chat_client.complete(messages, SEARCH_TOOLS)
+            except Exception as exc:
+                status = "error"
+                termination_reason = "generation_request_error"
+                run_error = {"type": type(exc).__name__, "message": str(exc)}
+                self._progress(
+                    "generation_failed",
+                    turn=step_index + 1,
+                    error=run_error,
+                )
+                break
             message = completion.get("message")
             if not isinstance(message, dict):
                 raise ValueError("chat client returned an invalid message")
@@ -94,6 +140,13 @@ class StandardAgentWorkflow:
                 }
             )
             tool_calls = message.get("tool_calls") or []
+            self._progress(
+                "generation_completed",
+                turn=step_index + 1,
+                finish_reason=completion.get("finish_reason"),
+                usage=completion.get("usage"),
+                tool_call_count=len(tool_calls),
+            )
 
             assistant_message: dict[str, Any] = {
                 "role": "assistant",
@@ -139,10 +192,69 @@ class StandardAgentWorkflow:
                 if search_calls >= self.max_search_calls:
                     break
                 call_id, arguments = self._parse_search_call(tool_call)
-                hits = self.search_client.search(arguments["query"])
+                self._progress(
+                    "search_started",
+                    search_call=search_calls + 1,
+                    query=arguments["query"],
+                )
+                try:
+                    hits = self.search_client.search(arguments["query"])
+                except Exception as exc:
+                    status = "error"
+                    termination_reason = "search_request_error"
+                    run_error = {"type": type(exc).__name__, "message": str(exc)}
+                    self._progress(
+                        "search_failed",
+                        search_call=search_calls + 1,
+                        query=arguments["query"],
+                        error=run_error,
+                    )
+                    break
                 output = json.dumps(hits, ensure_ascii=False)
                 search_calls += 1
-                retrieved_docids.update(hit["docid"] for hit in hits)
+                ranked_docids = [hit["docid"] for hit in hits]
+                new_docids = set(ranked_docids) - retrieved_docids
+                new_evidence_hits = len(
+                    new_docids.intersection(query.evidence_document_ids)
+                )
+                new_gold_hits = len(new_docids.intersection(query.gold_document_ids))
+                retrieved_docids.update(ranked_docids)
+                evidence_turn = _ranked_label_metrics(
+                    ranked_docids, query.evidence_document_ids
+                )
+                gold_turn = _ranked_label_metrics(ranked_docids, query.gold_document_ids)
+                evidence_cumulative = _ranked_label_metrics(
+                    retrieved_docids, query.evidence_document_ids
+                )
+                gold_cumulative = _ranked_label_metrics(
+                    retrieved_docids, query.gold_document_ids
+                )
+                search_step = {
+                    "search_call": search_calls,
+                    "query": arguments["query"],
+                    "returned_documents": len(hits),
+                    "unique_documents_cumulative": len(retrieved_docids),
+                    "evidence": {
+                        "turn_recall_at_5": evidence_turn["recall"],
+                        "turn_ndcg_at_5": evidence_turn["ndcg"],
+                        "turn_hits": evidence_turn["hits"],
+                        "new_hits": new_evidence_hits,
+                        "relevant_documents": evidence_turn["relevant"],
+                        "cumulative_recall": evidence_cumulative["recall"],
+                        "cumulative_hits": evidence_cumulative["hits"],
+                    },
+                    "gold": {
+                        "turn_recall_at_5": gold_turn["recall"],
+                        "turn_ndcg_at_5": gold_turn["ndcg"],
+                        "turn_hits": gold_turn["hits"],
+                        "new_hits": new_gold_hits,
+                        "relevant_documents": gold_turn["relevant"],
+                        "cumulative_recall": gold_cumulative["recall"],
+                        "cumulative_hits": gold_cumulative["hits"],
+                    },
+                }
+                search_steps.append(search_step)
+                self._progress("search_completed", **search_step)
                 results.append(
                     {
                         "type": "tool_call",
@@ -158,11 +270,13 @@ class StandardAgentWorkflow:
                         "content": output,
                     }
                 )
+            if run_error is not None:
+                break
             if search_calls >= self.max_search_calls:
                 termination_reason = "max_search_calls"
                 break
 
-        return {
+        record = {
             "schema_version": "1.0",
             "query_id": query.query_id,
             "tool_call_counts": {"search": search_calls},
@@ -173,9 +287,13 @@ class StandardAgentWorkflow:
                 "max_search_calls": self.max_search_calls,
                 "generation_usage": usage_rows,
                 "generation_steps": generation_steps,
+                "search_steps": search_steps,
                 "termination_reason": termination_reason,
             },
         }
+        if run_error is not None:
+            record["error"] = run_error
+        return record
 
     @staticmethod
     def _parse_search_call(tool_call: Any) -> tuple[str, dict[str, str]]:

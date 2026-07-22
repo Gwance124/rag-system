@@ -150,14 +150,26 @@ python scripts/run_standard_agent.py \
   --search-url "http://127.0.0.1:8012" \
   --generator-url "http://$G3_IP:8000/v1" \
   --model qwen3.6-27b \
+  --generator-timeout-seconds 2400 \
   --output-dir "$RAG_ARTIFACT_ROOT/runs/qwen3.6-27b/standard/dev-smoke"
 ```
 
 The runner exposes only `search`, disallows parallel tool calls, caps the smoke
 at 20 searches, refuses held-out IDs, saves error rows, and writes a private
-official-shaped run JSON. Do not start the judge or budget sweep until this
-record has `status=completed`, at least one search call, five-document Standard
-tool outputs, and a final `output_text` row.
+official-shaped run JSON. During the run it prints every generation and search
+transition with elapsed time and writes the same events to
+`run_<query-id>.progress.jsonl`. Each completed search reports per-turn
+evidence/gold Recall@5 and nDCG@5 plus cumulative evidence/gold recall. Follow
+it from another p7 shell with `tail -f <output-dir>/run_<query-id>.progress.jsonl`.
+Do not start the judge or budget sweep until the final record has
+`status=completed`, at least one search call, five-document Standard tool
+outputs, and a final `output_text` row.
+
+The generator request is non-streaming, so the HTTP client receives no body
+while a reasoning turn is in progress. The 2,400-second timeout accommodates a
+20,000-token diagnostic turn at the observed single-A100 throughput. If a
+generation or search request still fails, the final error record preserves all
+previously completed searches, retrieved document IDs, and per-turn metrics.
 
 ## Tests
 

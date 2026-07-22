@@ -336,6 +336,13 @@ accepts both vLLM reasoning field names, and reports an explicit termination
 reason. Preserve this failed artifact and rerun in a new output directory with
 a 20,000-token per-turn allowance before changing any other baseline setting.
 
+That 20,000-token rerun exposed the original 900-second non-streaming HTTP
+timeout: g3 continued reporting generation throughput while p7 received no
+response body and eventually raised `VllmChatError: timed out`. The agent
+runner now defaults to a 2,400-second generator timeout and records it in run
+metadata. Generation/search failures also retain partial trajectory state
+instead of incorrectly reporting zero searches and zero retrieved documents.
+
 ## Meaning of agent leaderboard Recall (%)
 
 The end-to-end leaderboard's `Recall (%)` has no fixed `K`. For query `q`, the

@@ -35,6 +35,7 @@ def query():
 
 
 def test_standard_agent_runs_search_then_saves_official_shape():
+    progress_events = []
     chat = FakeChatClient(
         [
             {
@@ -67,7 +68,9 @@ def test_standard_agent_runs_search_then_saves_official_shape():
         ]
     )
     search = FakeSearchClient()
-    record = StandardAgentWorkflow(chat, search).run(query())
+    record = StandardAgentWorkflow(
+        chat, search, progress_callback=progress_events.append
+    ).run(query())
 
     assert record["status"] == "completed"
     assert record["tool_call_counts"] == {"search": 1}
@@ -75,6 +78,19 @@ def test_standard_agent_runs_search_then_saves_official_shape():
     assert record["result"][-1]["type"] == "output_text"
     assert record["diagnostics"]["termination_reason"] == "final_answer"
     assert record["diagnostics"]["generation_steps"][0]["finish_reason"] == "tool_calls"
+    search_step = record["diagnostics"]["search_steps"][0]
+    assert search_step["evidence"]["turn_recall_at_5"] == 1.0
+    assert search_step["evidence"]["turn_ndcg_at_5"] == 1.0
+    assert search_step["evidence"]["new_hits"] == 1
+    assert search_step["evidence"]["cumulative_recall"] == 1.0
+    assert [event["event"] for event in progress_events] == [
+        "generation_started",
+        "generation_completed",
+        "search_started",
+        "search_completed",
+        "generation_started",
+        "generation_completed",
+    ]
     assert search.queries == ["focused search"]
     second_messages = chat.requests[1][0]
     assert second_messages[-1]["role"] == "tool"
@@ -134,3 +150,39 @@ def test_standard_agent_records_output_token_exhaustion():
     assert record["status"] == "incomplete"
     assert record["result"][0]["type"] == "reasoning"
     assert record["diagnostics"]["termination_reason"] == "max_output_tokens"
+
+
+def test_standard_agent_preserves_partial_run_after_generation_error():
+    class FailingChatClient:
+        def __init__(self):
+            self.calls = 0
+
+        def complete(self, messages, tools):
+            self.calls += 1
+            if self.calls == 2:
+                raise TimeoutError("timed out")
+            return {
+                "message": {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call-1",
+                            "function": {
+                                "name": "search",
+                                "arguments": json.dumps({"query": "first search"}),
+                            },
+                        }
+                    ],
+                },
+                "usage": {"completion_tokens": 10},
+                "finish_reason": "tool_calls",
+            }
+
+    record = StandardAgentWorkflow(FailingChatClient(), FakeSearchClient()).run(query())
+
+    assert record["status"] == "error"
+    assert record["tool_call_counts"] == {"search": 1}
+    assert record["retrieved_docids"] == ["d0", "d1", "d2", "d3", "d4"]
+    assert record["error"] == {"type": "TimeoutError", "message": "timed out"}
+    assert record["diagnostics"]["termination_reason"] == "generation_request_error"

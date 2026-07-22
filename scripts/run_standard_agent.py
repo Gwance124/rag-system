@@ -6,7 +6,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -49,13 +51,23 @@ def main() -> None:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--max-search-calls", type=int, default=20)
     parser.add_argument("--max-output-tokens", type=int, default=10_000)
+    parser.add_argument("--generator-timeout-seconds", type=float, default=2400.0)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--quiet-progress", action="store_true")
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
 
     output_path = args.output_dir.expanduser().resolve() / f"run_{args.query_id}.json"
+    progress_path = output_path.with_suffix(".progress.jsonl")
     if output_path.exists() and not args.force:
         parser.error(f"output already exists: {output_path}; pass --force to replace it")
+    if progress_path.exists() and not args.force:
+        parser.error(
+            f"progress log already exists: {progress_path}; pass --force to replace it"
+        )
+    progress_path.parent.mkdir(parents=True, exist_ok=True)
+    progress_path.write_text("", encoding="utf-8")
+    os.chmod(progress_path, 0o600)
 
     query = load_prepared_development_query(args.prepared_dir, args.query_id)
     chat_client = VllmChatClient(
@@ -63,11 +75,82 @@ def main() -> None:
         model=args.model,
         max_output_tokens=args.max_output_tokens,
         seed=args.seed,
+        timeout_seconds=args.generator_timeout_seconds,
     )
+    started_at = time.monotonic()
+
+    def metric(value: float | None) -> str:
+        return "n/a" if value is None else f"{value:.4f}"
+
+    def progress(event: dict) -> None:
+        elapsed = time.monotonic() - started_at
+        durable_event = {
+            "elapsed_seconds": round(elapsed, 3),
+            "query_id": query.query_id,
+            **event,
+        }
+        with progress_path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(durable_event, ensure_ascii=False, sort_keys=True))
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        if args.quiet_progress:
+            return
+        name = event["event"]
+        if name == "generation_started":
+            message = (
+                f"turn {event['turn']}: generating "
+                f"({event['completed_search_calls']} searches completed)"
+            )
+        elif name == "generation_completed":
+            usage = event.get("usage") or {}
+            message = (
+                f"turn {event['turn']}: generation finished "
+                f"reason={event.get('finish_reason')} "
+                f"prompt_tokens={usage.get('prompt_tokens', 'n/a')} "
+                f"completion_tokens={usage.get('completion_tokens', 'n/a')} "
+                f"tool_calls={event['tool_call_count']}"
+            )
+        elif name == "generation_failed":
+            error = event["error"]
+            message = (
+                f"turn {event['turn']}: generation failed "
+                f"{error['type']}: {error['message']}"
+            )
+        elif name == "search_started":
+            message = f"search {event['search_call']}: {event['query']}"
+        elif name == "search_completed":
+            evidence = event["evidence"]
+            gold = event["gold"]
+            message = (
+                f"search {event['search_call']}: returned={event['returned_documents']} "
+                f"unique_total={event['unique_documents_cumulative']} "
+                f"evidence_hits={evidence['turn_hits']}/{evidence['relevant_documents']} "
+                f"evidence_new={evidence['new_hits']} "
+                f"evidence_recall@5={metric(evidence['turn_recall_at_5'])} "
+                f"evidence_ndcg@5={metric(evidence['turn_ndcg_at_5'])} "
+                f"evidence_cumulative={metric(evidence['cumulative_recall'])} "
+                f"gold_hits={gold['turn_hits']}/{gold['relevant_documents']} "
+                f"gold_new={gold['new_hits']} "
+                f"gold_recall@5={metric(gold['turn_recall_at_5'])} "
+                f"gold_ndcg@5={metric(gold['turn_ndcg_at_5'])} "
+                f"gold_cumulative={metric(gold['cumulative_recall'])}"
+            )
+        elif name == "search_failed":
+            error = event["error"]
+            message = (
+                f"search {event['search_call']}: failed "
+                f"{error['type']}: {error['message']}"
+            )
+        else:
+            message = json.dumps(event, sort_keys=True)
+        print(f"[{elapsed:8.1f}s] {message}", file=sys.stderr, flush=True)
+
     workflow = StandardAgentWorkflow(
         chat_client=chat_client,
         search_client=StandardSearchClient(args.search_url),
         max_search_calls=args.max_search_calls,
+        progress_callback=progress,
     )
     try:
         record = workflow.run(query)
@@ -88,6 +171,7 @@ def main() -> None:
         "scaffold": "standard_search_only_top5_first512",
         "seed": args.seed,
         "max_output_tokens": args.max_output_tokens,
+        "generator_timeout_seconds": args.generator_timeout_seconds,
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
     }
     atomic_private_json(output_path, record)
@@ -95,6 +179,7 @@ def main() -> None:
         json.dumps(
             {
                 "output_path": str(output_path),
+                "progress_path": str(progress_path),
                 "query_id": query.query_id,
                 "status": record["status"],
                 "search_calls": record["tool_call_counts"].get("search", 0),
