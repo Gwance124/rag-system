@@ -152,13 +152,17 @@ class StandardAgentWorkflow:
                 "role": "assistant",
                 "content": message.get("content"),
             }
+            reasoning = message.get("reasoning_content")
+            if not isinstance(reasoning, str):
+                reasoning = message.get("reasoning")
+            if isinstance(reasoning, str) and reasoning.strip():
+                # Qwen3.6's interleaved-thinking template expects historical
+                # reasoning under this canonical field during tool loops.
+                assistant_message["reasoning_content"] = reasoning
             if tool_calls:
                 assistant_message["tool_calls"] = tool_calls
             messages.append(assistant_message)
 
-            reasoning = message.get("reasoning_content")
-            if not isinstance(reasoning, str):
-                reasoning = message.get("reasoning")
             if isinstance(reasoning, str) and reasoning.strip():
                 results.append(
                     {

@@ -20,6 +20,11 @@ class VllmChatClient:
     max_output_tokens: int = 10_000
     temperature: float = 0.7
     top_p: float = 0.8
+    top_k: int | None = None
+    min_p: float | None = None
+    presence_penalty: float | None = None
+    repetition_penalty: float | None = None
+    preserve_thinking: bool = False
     seed: int = 0
     timeout_seconds: float = 900.0
     thinking_token_budget: int | None = None
@@ -39,8 +44,19 @@ class VllmChatClient:
             "temperature": self.temperature,
             "top_p": self.top_p,
             "seed": self.seed,
-            "chat_template_kwargs": {"enable_thinking": True},
+            "chat_template_kwargs": {
+                "enable_thinking": True,
+                "preserve_thinking": self.preserve_thinking,
+            },
         }
+        if self.top_k is not None:
+            payload["top_k"] = self.top_k
+        if self.min_p is not None:
+            payload["min_p"] = self.min_p
+        if self.presence_penalty is not None:
+            payload["presence_penalty"] = self.presence_penalty
+        if self.repetition_penalty is not None:
+            payload["repetition_penalty"] = self.repetition_penalty
         if self.thinking_token_budget is not None:
             if self.thinking_token_budget <= 0:
                 raise ValueError("thinking_token_budget must be positive")

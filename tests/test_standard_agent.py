@@ -93,6 +93,7 @@ def test_standard_agent_runs_search_then_saves_official_shape():
     ]
     assert search.queries == ["focused search"]
     second_messages = chat.requests[1][0]
+    assert second_messages[-2]["reasoning_content"] == "I should search."
     assert second_messages[-1]["role"] == "tool"
     assert second_messages[-1]["tool_call_id"] == "call-1"
 

@@ -52,6 +52,13 @@ def main() -> None:
     parser.add_argument("--max-search-calls", type=int, default=20)
     parser.add_argument("--max-output-tokens", type=int, default=10_000)
     parser.add_argument("--generator-timeout-seconds", type=float, default=2400.0)
+    parser.add_argument("--temperature", type=float, default=0.7)
+    parser.add_argument("--top-p", type=float, default=0.8)
+    parser.add_argument("--top-k", type=int)
+    parser.add_argument("--min-p", type=float)
+    parser.add_argument("--presence-penalty", type=float)
+    parser.add_argument("--repetition-penalty", type=float)
+    parser.add_argument("--preserve-thinking", action="store_true")
     parser.add_argument(
         "--thinking-token-budget",
         type=int,
@@ -79,6 +86,13 @@ def main() -> None:
         base_url=args.generator_url,
         model=args.model,
         max_output_tokens=args.max_output_tokens,
+        temperature=args.temperature,
+        top_p=args.top_p,
+        top_k=args.top_k,
+        min_p=args.min_p,
+        presence_penalty=args.presence_penalty,
+        repetition_penalty=args.repetition_penalty,
+        preserve_thinking=args.preserve_thinking,
         seed=args.seed,
         timeout_seconds=args.generator_timeout_seconds,
         thinking_token_budget=args.thinking_token_budget,
@@ -154,6 +168,13 @@ def main() -> None:
                 f"search {event['search_call']}: failed "
                 f"{error['type']}: {error['message']}"
             )
+        elif name == "run_finished":
+            message = (
+                f"run finished status={event['status']} "
+                f"termination={event['termination_reason']} "
+                f"searches={event['search_calls']} "
+                f"unique_documents={event['unique_retrieved_documents']}"
+            )
         else:
             message = json.dumps(event, sort_keys=True)
         print(f"[{elapsed:8.1f}s] {message}", file=sys.stderr, flush=True)
@@ -170,6 +191,15 @@ def main() -> None:
             "max_output_tokens": args.max_output_tokens,
             "thinking_token_budget": args.thinking_token_budget,
             "generator_timeout_seconds": args.generator_timeout_seconds,
+            "sampling": {
+                "temperature": args.temperature,
+                "top_p": args.top_p,
+                "top_k": args.top_k,
+                "min_p": args.min_p,
+                "presence_penalty": args.presence_penalty,
+                "repetition_penalty": args.repetition_penalty,
+            },
+            "preserve_thinking": args.preserve_thinking,
         }
     )
     try:
@@ -184,6 +214,16 @@ def main() -> None:
             "result": [],
             "error": {"type": type(exc).__name__, "message": str(exc)},
         }
+    diagnostics = record.get("diagnostics") or {}
+    progress(
+        {
+            "event": "run_finished",
+            "status": record["status"],
+            "termination_reason": diagnostics.get("termination_reason", "exception"),
+            "search_calls": record["tool_call_counts"].get("search", 0),
+            "unique_retrieved_documents": len(record["retrieved_docids"]),
+        }
+    )
     record["metadata"] = {
         "model": args.model,
         "generator_url": args.generator_url,
@@ -193,6 +233,13 @@ def main() -> None:
         "max_output_tokens": args.max_output_tokens,
         "generator_timeout_seconds": args.generator_timeout_seconds,
         "thinking_token_budget": args.thinking_token_budget,
+        "temperature": args.temperature,
+        "top_p": args.top_p,
+        "top_k": args.top_k,
+        "min_p": args.min_p,
+        "presence_penalty": args.presence_penalty,
+        "repetition_penalty": args.repetition_penalty,
+        "preserve_thinking": args.preserve_thinking,
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
     }
     atomic_private_json(output_path, record)

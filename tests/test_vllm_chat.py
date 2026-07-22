@@ -39,6 +39,13 @@ def test_vllm_chat_sends_auto_search_tool_request(monkeypatch):
     client = VllmChatClient(
         "http://generator.test/v1",
         "qwen3.6-27b",
+        temperature=1.0,
+        top_p=0.95,
+        top_k=20,
+        min_p=0.0,
+        presence_penalty=0.0,
+        repetition_penalty=1.0,
+        preserve_thinking=True,
         seed=3,
         thinking_token_budget=4096,
     )
@@ -47,7 +54,16 @@ def test_vllm_chat_sends_auto_search_tool_request(monkeypatch):
     assert captured["url"] == "http://generator.test/v1/chat/completions"
     assert captured["payload"]["tool_choice"] == "auto"
     assert captured["payload"]["parallel_tool_calls"] is False
-    assert captured["payload"]["chat_template_kwargs"] == {"enable_thinking": True}
+    assert captured["payload"]["chat_template_kwargs"] == {
+        "enable_thinking": True,
+        "preserve_thinking": True,
+    }
+    assert captured["payload"]["temperature"] == 1.0
+    assert captured["payload"]["top_p"] == 0.95
+    assert captured["payload"]["top_k"] == 20
+    assert captured["payload"]["min_p"] == 0.0
+    assert captured["payload"]["presence_penalty"] == 0.0
+    assert captured["payload"]["repetition_penalty"] == 1.0
     assert captured["payload"]["seed"] == 3
     assert captured["payload"]["thinking_token_budget"] == 4096
     assert result["message"]["content"] == "answer"
