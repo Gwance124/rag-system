@@ -314,6 +314,14 @@ The next runtime pieces are now implemented and pass 27 offline unit tests:
 required for Qwen3.6 native tool calls. The live persistent server and agent
 trajectory have not yet been run; exact commands are in the root README.
 
+The first generator launch exposed vLLM CLI drift: the installed build rejected
+`--attention-backend`, `--language-model-only`, and
+`--enable-per-request-metrics`. The launcher is now version-aware. FlashInfer
+is selected only through `VLLM_ATTENTION_BACKEND`; language-only mode falls
+back to zero image/video limits when supported; and optional request/load
+metrics flags are included only when present in `vllm serve --help`. Missing
+telemetry remains explicitly warned and must not be synthesized later.
+
 ## Meaning of agent leaderboard Recall (%)
 
 The end-to-end leaderboard's `Recall (%)` has no fixed `K`. For query `q`, the

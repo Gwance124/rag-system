@@ -58,16 +58,42 @@ args=(
   --max-model-len "$VLLM_MAX_MODEL_LEN"
   --gpu-memory-utilization "$VLLM_GPU_MEMORY_UTILIZATION"
   --max-num-seqs "$VLLM_MAX_NUM_SEQS"
-  --attention-backend "$VLLM_ATTENTION_BACKEND"
-  --language-model-only
   --reasoning-parser qwen3
   --enable-auto-tool-choice
   --tool-call-parser "$VLLM_TOOL_CALL_PARSER"
   --generation-config vllm
   --no-enable-prefix-caching
-  --enable-per-request-metrics
-  --enable-server-load-tracking
 )
+
+# vLLM's CLI surface changes between releases. FlashInfer is selected through
+# VLLM_ATTENTION_BACKEND; optional serve flags are added only when supported by
+# the exact installed build and their absence is recorded rather than hidden.
+VLLM_SERVE_HELP="$(vllm serve --help 2>&1)"
+
+supports_vllm_flag() {
+  [[ "$VLLM_SERVE_HELP" == *"$1"* ]]
+}
+
+if supports_vllm_flag "--language-model-only"; then
+  args+=(--language-model-only)
+elif supports_vllm_flag "--limit-mm-per-prompt"; then
+  args+=(--limit-mm-per-prompt '{"image":0,"video":0}')
+  echo "vLLM lacks --language-model-only; disabling image/video with --limit-mm-per-prompt" >&2
+else
+  echo "Warning: this vLLM cannot explicitly disable the multimodal encoder" >&2
+fi
+
+if supports_vllm_flag "--enable-per-request-metrics"; then
+  args+=(--enable-per-request-metrics)
+else
+  echo "Warning: per-request vLLM timing metrics are unavailable in this build" >&2
+fi
+
+if supports_vllm_flag "--enable-server-load-tracking"; then
+  args+=(--enable-server-load-tracking)
+else
+  echo "Warning: vLLM server-load tracking is unavailable in this build" >&2
+fi
 
 if [[ -n "${VLLM_EXTRA_ARGS:-}" ]]; then
   read -r -a extra_args <<< "$VLLM_EXTRA_ARGS"
