@@ -114,6 +114,51 @@ and snippet token counts. It succeeds only when exactly five unique documents
 are returned and every snippet is at most 512 tokens under the local upstream
 tokenizer.
 
+## Persistent Standard agent smoke
+
+After the one-query dynamic search smoke passes, keep the g3 query encoder
+running and start the persistent p7 search service. It loads the corpus and
+FAISS shards once instead of rebuilding them for every agent search:
+
+```bash
+python scripts/serve_standard_search.py \
+  --corpus-repo "$RAG_BROWSECOMP_CORPUS_DIR" \
+  --index-path "$RAG_QWEN3_8B_INDEX_PATTERN" \
+  --tokenizer-path "$RAG_QWEN3_06B_TOKENIZER_DIR" \
+  --encoder-url "http://$G3_IP:8011" \
+  --datasets-cache "$HF_DATASETS_CACHE" \
+  --host 127.0.0.1 \
+  --port 8012
+```
+
+On the SXM4 A100 on g3, launch the generator with automatic Qwen tool parsing:
+
+```bash
+export CUDA_VISIBLE_DEVICES=0
+export RAG_MODEL_PATH="/path/to/Qwen3.6-27B-snapshot"
+export VLLM_HOST=0.0.0.0
+export VLLM_PORT=8000
+./scripts/serve_generator.sh
+```
+
+Then run exactly one frozen development query from a second p7 shell:
+
+```bash
+python scripts/run_standard_agent.py \
+  --prepared-dir "$RAG_ARTIFACT_ROOT/datasets/browsecomp-plus" \
+  --query-id "$DEV_QUERY_ID" \
+  --search-url "http://127.0.0.1:8012" \
+  --generator-url "http://$G3_IP:8000/v1" \
+  --model qwen3.6-27b \
+  --output-dir "$RAG_ARTIFACT_ROOT/runs/qwen3.6-27b/standard/dev-smoke"
+```
+
+The runner exposes only `search`, disallows parallel tool calls, caps the smoke
+at 20 searches, refuses held-out IDs, saves error rows, and writes a private
+official-shaped run JSON. Do not start the judge or budget sweep until this
+record has `status=completed`, at least one search call, five-document Standard
+tool outputs, and a final `output_text` row.
+
 ## Tests
 
 ```bash

@@ -16,6 +16,7 @@ from rag_system.datasets.browsecomp_plus import (
     _load_local_parquet,
     decrypt_record,
     make_hash_split,
+    load_prepared_development_query,
     query_from_decrypted_row,
     query_from_encrypted_row,
     validate_benchmark,
@@ -207,3 +208,30 @@ def test_prepared_artifacts_are_private_and_manifest_has_no_plaintext(tmp_path):
     assert "sensitive answer" not in manifest_text
     assert json.loads(manifest_text)["split"]["sha256"] == split.sha256
     assert manifest["validation"]["query_count"] == 2
+
+    loaded = load_prepared_development_query(output, split.development_query_ids[0])
+    assert loaded.query_id == split.development_query_ids[0]
+
+
+def test_prepared_query_loader_rejects_held_out_id(tmp_path):
+    queries = [
+        BenchmarkQuery("q1", "question one", "answer one", ("d1",), ("d1",)),
+        BenchmarkQuery("q2", "question two", "answer two", ("d2",), ("d2",)),
+    ]
+    corpus = [
+        CorpusDocument("d1", "one", "u1"),
+        CorpusDocument("d2", "two", "u2"),
+    ]
+    report = validate_benchmark(queries, corpus, strict_counts=False)
+    split = make_hash_split((query.query_id for query in queries), development_count=1)
+    output = tmp_path / "prepared"
+    write_prepared_artifacts(
+        output,
+        queries,
+        split,
+        report,
+        queries_repository=tmp_path / "queries",
+        corpus_repository=tmp_path / "corpus",
+    )
+    with pytest.raises(DatasetValidationError, match="not in the frozen development"):
+        load_prepared_development_query(output, split.held_out_query_ids[0])

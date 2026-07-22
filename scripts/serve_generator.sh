@@ -22,6 +22,7 @@ VLLM_MAX_MODEL_LEN="${VLLM_MAX_MODEL_LEN:-65536}"
 VLLM_GPU_MEMORY_UTILIZATION="${VLLM_GPU_MEMORY_UTILIZATION:-0.90}"
 VLLM_MAX_NUM_SEQS="${VLLM_MAX_NUM_SEQS:-4}"
 VLLM_ATTENTION_BACKEND="${VLLM_ATTENTION_BACKEND:-FLASHINFER}"
+VLLM_TOOL_CALL_PARSER="${VLLM_TOOL_CALL_PARSER:-qwen3_coder}"
 
 export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
@@ -60,6 +61,8 @@ args=(
   --attention-backend "$VLLM_ATTENTION_BACKEND"
   --language-model-only
   --reasoning-parser qwen3
+  --enable-auto-tool-choice
+  --tool-call-parser "$VLLM_TOOL_CALL_PARSER"
   --generation-config vllm
   --no-enable-prefix-caching
   --enable-per-request-metrics

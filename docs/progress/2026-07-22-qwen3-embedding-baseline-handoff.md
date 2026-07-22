@@ -279,10 +279,40 @@ The active package now contains the first p7/g3 dynamic-search boundary:
 - `scripts/smoke_standard_search.py` permits only frozen development IDs and
   prints no decrypted question or snippet text.
 
-The unit suite passes with 20 tests. This is implemented but has not yet been
-run against the real p7 index and g3 GPU service. The next gate is therefore a
-single live development-query invocation, not generator deployment yet. Exact
-commands are documented in the root README.
+The unit suite passes with 20 tests. The live smoke was subsequently run
+against the real p7 corpus/index and g3 Qwen3-Embedding-8B service. It returned
+one development query ID, `top_k=5`, `snippet_max_tokens=512`, and five hits,
+each containing rank, document ID, score, and a snippet token count no greater
+than 512. No decrypted query or snippet text was recorded here.
+
+This passes the dynamic Standard-search gate. The next gate is a persistent p7
+search service and one Qwen3.6-27B search-only agent trajectory using the same
+top-5/512 contract. Do not begin context-budget sweeps or the judge before that
+trajectory is saved and validated.
+
+### Persistent search and Standard agent implementation
+
+The next runtime pieces are now implemented and pass 27 offline unit tests:
+
+- `scripts/serve_standard_search.py` loads the official FAISS shards, canonical
+  corpus, and 0.6B snippet tokenizer once on p7, then serves `/health` and
+  `/search` on port 8012;
+- `StandardSearchClient` rejects any response other than exactly five unique
+  hits with snippet counts no greater than 512, and removes diagnostic token
+  counts before giving tool output to the model;
+- `VllmChatClient` uses vLLM's OpenAI-compatible Chat Completions endpoint with
+  thinking enabled, automatic but strict tool choice, and parallel tool calls
+  disabled;
+- `StandardAgentWorkflow` uses the pinned upstream no-get-document prompt,
+  permits only `search`, unions all retrieved document IDs, and emits the
+  official run shape; and
+- `scripts/run_standard_agent.py` accepts only frozen development IDs and
+  writes a private resumable JSON record, including an error row on failure.
+
+`scripts/serve_generator.sh` now enables vLLM automatic tool choice with the
+`qwen3_coder` tool parser and retains the `qwen3` reasoning parser. These are
+required for Qwen3.6 native tool calls. The live persistent server and agent
+trajectory have not yet been run; exact commands are in the root README.
 
 ## Meaning of agent leaderboard Recall (%)
 

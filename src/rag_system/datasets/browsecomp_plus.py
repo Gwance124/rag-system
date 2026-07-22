@@ -364,6 +364,43 @@ def iter_corpus_repository(
         yield corpus_document_from_row(row)
 
 
+def load_prepared_development_query(
+    prepared_dir: str | Path,
+    query_id: str,
+) -> BenchmarkQuery:
+    """Load one query only when it belongs to the frozen development split."""
+    root = Path(prepared_dir).expanduser().resolve()
+    try:
+        split = json.loads((root / "split.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise DatasetValidationError(f"cannot read prepared split under {root}") from exc
+    development_ids = split.get("development_query_ids")
+    if not isinstance(development_ids, list) or query_id not in development_ids:
+        raise DatasetValidationError(
+            f"query ID {query_id!r} is not in the frozen development split"
+        )
+
+    query_path = root / "queries.decrypted.jsonl"
+    try:
+        with query_path.open(encoding="utf-8") as handle:
+            for line in handle:
+                row = json.loads(line)
+                if row.get("query_id") != query_id:
+                    continue
+                return _build_query(
+                    query_id=query_id,
+                    question=_require_string(row, "question").strip(),
+                    answer=_require_string(row, "reference_answer").strip(),
+                    evidence_ids=tuple(row.get("evidence_document_ids", ())),
+                    gold_ids=tuple(row.get("gold_document_ids", ())),
+                )
+    except (OSError, json.JSONDecodeError) as exc:
+        raise DatasetValidationError(f"cannot read prepared queries under {root}") from exc
+    raise DatasetValidationError(
+        f"query ID {query_id!r} is absent from the prepared query artifact"
+    )
+
+
 def _atomic_private_write(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary_path = None

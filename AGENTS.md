@@ -10,8 +10,10 @@ The current execution state and the latest decisions that supersede stale
 parts of that plan are documented in
 `docs/progress/2026-07-22-qwen3-embedding-baseline-handoff.md`. Read that
 handoff before proposing commands or changing the experiment. In particular,
-the official Qwen3-Embedding-8B retrieval reproduction has passed, and the
-next gate is a dynamic BrowseComp-Plus Standard search call.
+the official Qwen3-Embedding-8B retrieval reproduction and a live dynamic
+BrowseComp-Plus Standard search call have passed. The next gate is a persistent
+p7 search service connected to one Qwen3.6-27B search-only agent trajectory;
+both runtime components now exist but have not passed the live two-host gate.
 
 `old/` is an archive of the scientific-retrieval and LaTeX-chunking work. Do
 not add features there, import it from new code, or use QASPER as a benchmark
@@ -48,8 +50,9 @@ Qwen3.6-27B, Qwen3-Embedding-8B with the official precomputed document index,
 a search-only tool returning top 5 results, and at most 512 tokens per result.
 Do not add `get_document`, custom chunking, reranking, context-budget sweeps,
 subagents, concurrency experiments, or an LLM judge before that baseline
-passes. The fixed-query retrieval-only reproduction is complete; dynamic
-search and generation are not yet implemented in the active package.
+passes. The fixed-query retrieval-only reproduction and a one-query dynamic
+search smoke are complete. Persistent search and the agent runner are
+implemented and unit-tested, but one live saved trajectory is still required.
 
 Measurement hardware is the two-A100 80 GB `solab-g3` host: use the PCIe A100
 for Qwen3-Embedding-8B retrieval and the SXM4 A100 for Qwen3.6-27B generation.

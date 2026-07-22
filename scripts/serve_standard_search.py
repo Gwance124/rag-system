@@ -1,31 +1,28 @@
 #!/usr/bin/env python3
-"""Run one dev-only Standard search across the p7/g3 service boundary."""
+"""Load the p7 corpus/index once and serve persistent Standard search."""
 
 from __future__ import annotations
 
 import argparse
-import json
 import os
 from pathlib import Path
 
-from rag_system.datasets.browsecomp_plus import (
-    iter_corpus_repository,
-    load_prepared_development_query,
-)
+from rag_system.datasets.browsecomp_plus import iter_corpus_repository
 from rag_system.retrieval.faiss_documents import FaissDocumentBackend
 from rag_system.retrieval.remote_encoder import RemoteQueryEncoder
 from rag_system.retrieval.standard import StandardSearchTool
+from rag_system.serving.standard_search import serve_standard_search
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--prepared-dir", type=Path, required=True)
-    parser.add_argument("--query-id", required=True)
     parser.add_argument("--corpus-repo", type=Path, required=True)
     parser.add_argument("--index-path", required=True)
     parser.add_argument("--tokenizer-path", type=Path, required=True)
     parser.add_argument("--encoder-url", required=True)
     parser.add_argument("--datasets-cache", type=Path)
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=8012)
     args = parser.parse_args()
 
     os.environ.setdefault("HF_HUB_OFFLINE", "1")
@@ -36,10 +33,6 @@ def main() -> None:
     except ImportError as exc:
         parser.error(f"Transformers is required: {exc}")
 
-    query = load_prepared_development_query(
-        args.prepared_dir.expanduser().resolve(),
-        args.query_id,
-    )
     tokenizer = AutoTokenizer.from_pretrained(
         str(args.tokenizer_path.expanduser().resolve()),
         local_files_only=True,
@@ -50,22 +43,8 @@ def main() -> None:
         cache_dir=args.datasets_cache,
     )
     backend = FaissDocumentBackend(args.index_path, encoder, documents)
-    trace = StandardSearchTool(backend, tokenizer).search(query.question)
-    summary = {
-        "query_id": args.query_id,
-        "top_k": trace.top_k,
-        "snippet_max_tokens": trace.snippet_max_tokens,
-        "hits": [
-            {
-                "rank": rank,
-                "document_id": hit.document_id,
-                "score": hit.score,
-                "snippet_token_count": hit.snippet_token_count,
-            }
-            for rank, hit in enumerate(trace.hits, start=1)
-        ],
-    }
-    print(json.dumps(summary, indent=2, sort_keys=True))
+    search_tool = StandardSearchTool(backend, tokenizer)
+    serve_standard_search(search_tool, args.host, args.port)
 
 
 if __name__ == "__main__":
