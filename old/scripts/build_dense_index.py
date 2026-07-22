@@ -11,7 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from retrieval.benchmarks import (
+from old.src.retrieval.benchmarks import (
     DEFAULT_MTEB_DATASET,
     DEFAULT_QASPER_DATASET,
     DEFAULT_QASPER_RAW_DATASET,
@@ -25,8 +25,8 @@ from retrieval.benchmarks import (
     mteb_dataset_id,
     scholargym_paths,
 )
-from retrieval.dense import QdrantIndex, VllmEmbeddingClient
-from retrieval.types import Document
+from old.src.retrieval.dense import QdrantIndex, VllmEmbeddingClient
+from old.src.retrieval.types import Document
 
 
 def _build_parser() -> argparse.ArgumentParser:

@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-from retrieval.benchmarks import (
+from old.src.retrieval.benchmarks import (
     DEFAULT_MTEB_DATASET,
     DEFAULT_QASPER_DATASET,
     DEFAULT_QASPER_RAW_DATASET,
@@ -24,9 +24,9 @@ from retrieval.benchmarks import (
     qasper_raw_dataset_path,
     scholargym_paths,
 )
-from retrieval.dense import QdrantIndex
-from retrieval.fusion import aggregate_to_papers, rrf_fuse
-from retrieval.metrics import (
+from old.src.retrieval.dense import QdrantIndex
+from old.src.retrieval.fusion import aggregate_to_papers, rrf_fuse
+from old.src.retrieval.metrics import (
     capped_recall_at_k,
     evaluate_capped_recall,
     evaluate_litsearch_comparison,
@@ -35,9 +35,9 @@ from retrieval.metrics import (
     recall_at_k,
     reciprocal_rank,
 )
-from retrieval.pipeline import HybridRetriever
-from retrieval.sparse import BM25Index
-from retrieval.types import Document, RetrievalConfig, SearchHit
+from old.src.retrieval.pipeline import HybridRetriever
+from old.src.retrieval.sparse import BM25Index
+from old.src.retrieval.types import Document, RetrievalConfig, SearchHit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from report_checkpoint1 import build_report, to_markdown

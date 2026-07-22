@@ -5,8 +5,8 @@ from __future__ import annotations
 import time
 from collections.abc import Callable, Iterable
 
-from retrieval.fusion import rrf_fuse
-from retrieval.types import RetrievalConfig, RetrievalResult, SearchHit
+from old.src.retrieval.fusion import rrf_fuse
+from old.src.retrieval.types import RetrievalConfig, RetrievalResult, SearchHit
 
 
 def _elapsed_ms(start: float) -> float:

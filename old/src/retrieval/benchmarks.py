@@ -8,7 +8,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from retrieval.types import Document
+from old.src.retrieval.types import Document
 
 
 DEFAULT_MTEB_DATASET = "scidocs"

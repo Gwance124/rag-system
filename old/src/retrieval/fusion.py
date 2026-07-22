@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from retrieval.types import Document, SearchHit
+from old.src.retrieval.types import Document, SearchHit
 
 
 def rrf_fuse(

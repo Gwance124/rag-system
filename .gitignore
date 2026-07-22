@@ -9,3 +9,17 @@ dist/
 # large data/output artifacts - not committed
 *.parquet
 *.jsonl
+*.arrow
+*.safetensors
+*.prom
+artifacts/
+data/
+indexes/
+models/
+offline-assets/
+results/
+
+# local service/runtime state
+*.log
+*.pid
+.env

@@ -1,19 +1,27 @@
 [project]
-name = "rag-system-retrieval"
+name = "rag-system"
 version = "0.1.0"
 requires-python = ">=3.10"
 dependencies = ["bm25s>=0.3,<0.4"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
-eval = ["datasets>=2.19", "matplotlib>=3.8"]
+eval = [
+    "datasets>=4.0",
+    "matplotlib>=3.8",
+    "transformers>=5.0",
+]
+staging = ["huggingface-hub>=0.30"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "latex-parser/tests"]
-pythonpath = ["src", "latex-parser/src"]
+testpaths = ["tests"]
+pythonpath = ["src"]
+markers = [
+    "integration: requires local benchmark assets or an external service",
+]
 
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=68", "wheel>=0.41"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]

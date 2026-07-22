@@ -8,7 +8,7 @@ import urllib.request
 import uuid
 from collections.abc import Callable, Iterable, Sequence
 
-from retrieval.types import Document, SearchHit
+from old.src.retrieval.types import Document, SearchHit
 
 
 class VllmEmbeddingClient:

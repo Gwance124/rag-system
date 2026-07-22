@@ -1,30 +1,114 @@
 # Repository Guidelines
 
-## Project Structure & Module Organization
+## Current Project Boundary
 
-The repository contains two Python packages. Retrieval code lives in `src/retrieval/`; benchmark entry points, index builders, reports, and plotting utilities live in `scripts/`. Retrieval tests are in `tests/test_retrieval.py`.
+This repository is being rebuilt as a local RAG systems research project. The
+active design is documented in
+`docs/plans/2026-07-21-rag-systems-four-week-plan.md`.
 
-`latex-parser/` is a standalone chunking package with its own `src/chunking/`, `scripts/`, `tests/`, and `pyproject.toml`. Design notes and implementation plans are kept under `docs/superpowers/`. Keep generated datasets, caches, indexes, and benchmark outputs outside source directories; large `*.parquet` and `*.jsonl` files are intentionally ignored.
+`old/` is an archive of the scientific-retrieval and LaTeX-chunking work. Do
+not add features there, import it from new code, or use QASPER as a benchmark
+for the new study. Port a small legacy primitive into the active package only
+when its behavior is covered by a new regression test. The root `README.md` and
+`pyproject.toml` describe the new active scaffold; legacy build instructions
+belong only under `old/`.
+
+The intended active layout is:
+
+- `src/rag_system/`: dataset, chunking, retrieval, packing, generation,
+  telemetry, evaluation, artifact, and workflow modules.
+- `scripts/`: thin entry points for preparing data, building indexes, running
+  experiments, validating artifacts, and plotting results.
+- `tests/`: active pytest suite, organized by module.
+- `configs/` and `prompts/`: frozen experiment configuration and prompt files.
+- `docs/plans/`: current designs and implementation plans.
+- `old/`: read-only legacy background and appendix material.
+
+Generated datasets, decrypted benchmark text, caches, indexes, rankings,
+traces, results, and plots belong under a gitignored artifact root, never
+inside `src/` or `tests/`. BrowseComp-Plus questions and answers are
+obfuscated upstream and must not be committed in decrypted form.
+
+## Research Guardrails
+
+BrowseComp-Plus is the primary benchmark. Preserve a deterministic development
+split and do not inspect held-out results while tuning. WixQA is only a backup
+pipeline sanity check. Do not introduce QASPER or TREC RAG into the new
+experiments.
+
+Week 1 is limited to the instrumented single-pass pipeline: one question, one
+retrieval, one frozen ranking, deterministic token-budget packing, and one
+generation call. Do not add query rewriting, reranking, repeated retrieval,
+agent loops, subagents, concurrency experiments, adaptive context selection,
+or an LLM judge before that baseline passes its acceptance tests.
+
+All measurement runs use the dedicated 1x A100 80 GB on `solab-g3`, with the
+pinned local `Qwen/Qwen3.5-27B` snapshot, vLLM, FlashInfer, and a frozen launch
+command. Dataset preparation, retrieval, and benchmark orchestration run on
+`solab-p7`. Never use the shared 4x H200 endpoint for reported measurements.
+Prefix caching is disabled for the initial experiments. Discover and save the
+installed vLLM `/metrics` surface; do not hard-code metric names without
+version-aware validation.
+
+Every run must be reproducible from a manifest. Pin dataset, model, tokenizer,
+and software revisions; hash chunk, index, ranking, prompt, and split artifacts;
+record the exact server launch command and GPU configuration; retain error rows
+rather than silently dropping failed requests. A context-budget sweep must
+reuse the same frozen ranking for every budget.
 
 ## Build, Test, and Development Commands
 
-- `python -m pip install -e ".[dev,eval]"` installs retrieval code, pytest, dataset adapters, and plotting support.
-- `python -m pip install -e "./latex-parser[dev]"` installs the chunking package and its test dependencies.
-- `pytest` runs both suites using the root `pyproject.toml` paths.
-- `pytest tests/test_retrieval.py -v` or `pytest latex-parser/tests -v` runs one area while iterating.
-- `python scripts/run_public_bench.py --benchmark litsearch --mode sparse --cache-dir <hf-cache>` runs an offline sparse benchmark against a staged Hugging Face cache.
-- `./scripts/run_all_benchmarks.sh` runs the full sparse/dense/hybrid sweep. It requires cached datasets, Qdrant, and the configured embedding endpoint; use `BUILD_INDEXES=0` to reuse collections.
+- `python -m pip install -e ".[dev,eval]"` installs active code and test/eval
+  dependencies.
+- `pytest` runs the active unit and integration suite.
+- `pytest tests/test_browsecomp_plus.py -v` runs the current dataset-focused
+  tests while iterating.
+- `python scripts/stage_offline_assets.py --output-root <path>` builds the
+  pinned laptop-side transfer bundle.
+- `python scripts/prepare_browsecomp_plus.py --queries-repo <path>
+  --corpus-repo <path> --output-dir <path>` validates and prepares the
+  transferred benchmark on `solab-p7`.
 
-## Coding Style & Naming Conventions
+Legacy commands and tests under `old/` are archival references, not release
+gates for the new package.
 
-Target Python 3.10 or newer. Use four-space indentation, standard-library-first imports, type hints for public interfaces, and small, focused modules. Name functions and files with `snake_case`, classes with `PascalCase`, and constants with `UPPER_SNAKE_CASE`. Match the surrounding code's direct, dependency-light style. No formatter or linter is configured, so keep imports tidy and avoid unrelated reformatting. Shell scripts should remain Bash-compatible and retain strict error handling (`set -euo pipefail`).
+## Coding Style and Interfaces
 
-## Testing Guidelines
+Target Python 3.10 or newer. Use four-space indentation,
+standard-library-first imports, type hints for public interfaces, and small,
+focused modules. Use `snake_case` for functions/files, `PascalCase` for
+classes, and `UPPER_SNAKE_CASE` for constants. Keep network clients
+dependency-light and injectable so tests can use local fake HTTP servers.
 
-Tests use pytest. Name files `test_*.py` and test functions `test_<behavior>`. Add a regression test for behavior changes; prefer small in-memory fixtures, `tmp_path`, and `monkeypatch` over network or service calls. There is no declared coverage threshold, but changed branches and failure paths should be exercised. Run `pytest` before opening a pull request.
+Use immutable dataclasses for cross-module records and explicit units in field
+names (`*_tokens`, `*_ms`, `*_utc_ns`, `*_fraction`). Use wall-clock time only
+for timestamps and a monotonic clock for durations. Missing telemetry is
+`null` with a reason/provenance field; never synthesize unavailable
+request-level metrics from server-wide aggregates.
 
-## Commit & Pull Request Guidelines
+Shell scripts must remain Bash-compatible and retain `set -euo pipefail`.
+Keep CLI files thin: orchestration logic belongs in `src/rag_system/` and must
+be callable directly from tests.
 
-History favors short, task-focused subjects such as `added progress tracking` and `Fixed scholar gym cache`; Conventional Commit prefixes are not required. Prefer an imperative subject that names the affected behavior, and keep each commit scoped.
+## Testing and Experiment Verification
 
-Pull requests should explain the motivation and implementation, list verification commands, and link any issue or design document. For benchmark changes, include the dataset, mode, model/configuration, and a concise before/after metric sample. Call out new cache, Qdrant, or embedding-service requirements explicitly.
+Name test files `test_*.py` and functions `test_<behavior>`. Add a regression
+test for each behavior change. Prefer in-memory fixtures, `tmp_path`,
+`monkeypatch`, and local fake HTTP/SSE servers over network or service calls.
+Mark real A100, vLLM, Qdrant, and full-corpus checks as explicit integration or
+smoke tests.
+
+Before a measurement run, require a clean committed code state (or record and
+hash the diff for a diagnostic run), a validated manifest, an exclusive GPU,
+the expected model revision, disabled prefix caching, and a saved `/metrics`
+catalog. After a run, validate unique experiment keys, expected row counts,
+selected IDs, token-budget bounds, monotonic timestamps, and artifact hashes.
+
+## Commit and Pull Request Guidelines
+
+Use short, task-focused commit subjects. Keep archive moves, active scaffolding,
+runtime features, and experiment outputs separate. Pull requests should state
+the motivation, implementation, verification commands, and any new data,
+cache, Qdrant, vLLM, or GPU requirements. For experiment changes, include the
+dataset revision, split, workflow, model/configuration, and a concise metric
+sample. Never commit decrypted benchmark content, large artifacts, or secrets.

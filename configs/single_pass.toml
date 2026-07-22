@@ -1,0 +1,56 @@
+schema_version = "1.0"
+
+[dataset]
+name = "browsecomp_plus"
+queries_repo_id = "Tevatron/browsecomp-plus"
+queries_revision = "144cff8e35b5eaef7e526346aa60774a9deb941f"
+corpus_repo_id = "Tevatron/browsecomp-plus-corpus"
+corpus_revision = "b27b02bc3e45511b8b82a13e6f90ce761df726f6"
+queries_dir_env = "RAG_BROWSECOMP_QUERIES_DIR"
+corpus_dir_env = "RAG_BROWSECOMP_CORPUS_DIR"
+expected_queries = 830
+expected_documents = 100195
+
+[split]
+algorithm = "sha256(seed + NUL + query_id)"
+seed = "browsecomp-plus-dev-v1"
+development_queries = 100
+
+[chunking]
+tokenizer_dir_env = "RAG_TOKENIZER_PATH"
+chunk_tokens = 512
+overlap_tokens = 64
+
+[retrieval]
+kind = "bm25"
+top_n = 1000
+k1 = 1.2
+b = 0.75
+method = "lucene"
+
+[context]
+budgets = [2048, 4096, 8192, 16384, 32768]
+sources = ["retrieved", "oracle"]
+oracle_strategy = "evidence_document_oracle"
+
+[generator]
+host = "solab-g3"
+base_url_env = "RAG_GENERATOR_BASE_URL"
+served_model_name = "qwen3.5-27b"
+model_repo_id = "Qwen/Qwen3.5-27B"
+model_revision = "fc05daec18b0a78c049392ed2e771dde82bdf654"
+model_path_env = "RAG_MODEL_PATH"
+attention_backend = "FLASHINFER"
+language_model_only = true
+dtype = "bfloat16"
+max_model_len = 65536
+temperature = 0.0
+max_output_tokens = 4096
+enable_thinking = true
+prefix_caching = false
+
+[measurement]
+benchmark_host = "solab-p7"
+model_host = "solab-g3"
+server_metric_sample_ms = 250
+seed = 17

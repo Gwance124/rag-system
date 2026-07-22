@@ -8,7 +8,7 @@ from collections.abc import Callable, Iterable
 import bm25s
 from bm25s.tokenization import Tokenizer
 
-from retrieval.types import Document, SearchHit
+from old.src.retrieval.types import Document, SearchHit
 
 _TOKEN_RE = re.compile(r"[\w]+", re.UNICODE)
 

@@ -1,0 +1,13 @@
+Answer the question using only the supplied sources. Do not use outside
+knowledge. Give a concise final answer and cite every source used with its
+source label. If the sources are insufficient, say so explicitly.
+
+Question:
+{question}
+
+Sources:
+{context}
+
+Return exactly this format:
+FINAL: <answer>
+SOURCES: [<source labels>]

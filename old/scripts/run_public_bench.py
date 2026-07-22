@@ -11,7 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from retrieval.benchmarks import (
+from old.src.retrieval.benchmarks import (
     Benchmark,
     DEFAULT_MTEB_DATASET,
     DEFAULT_QASPER_DATASET,
@@ -27,11 +27,11 @@ from retrieval.benchmarks import (
     qasper_chunk_candidates,
     scholargym_paths,
 )
-from retrieval.dense import QdrantIndex, VllmEmbeddingClient
-from retrieval.metrics import evaluate_capped_recall, evaluate_litsearch_comparison, evaluate_run
-from retrieval.pipeline import HybridRetriever
-from retrieval.sparse import BM25Index
-from retrieval.types import RetrievalConfig
+from old.src.retrieval.dense import QdrantIndex, VllmEmbeddingClient
+from old.src.retrieval.metrics import evaluate_capped_recall, evaluate_litsearch_comparison, evaluate_run
+from old.src.retrieval.pipeline import HybridRetriever
+from old.src.retrieval.sparse import BM25Index
+from old.src.retrieval.types import RetrievalConfig
 
 
 _DENSE_MODES = {"dense", "hybrid"}
