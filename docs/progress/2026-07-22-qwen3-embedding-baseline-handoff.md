@@ -361,6 +361,14 @@ configuration when supported. Use a 4,096-token budget only in a separately
 named bounded-reasoning diagnostic; the flag remains unset by default for the
 upstream-comparable run.
 
+The first bounded request was rejected because p7 sent
+`thinking_token_budget` to a g3 server that had been started without a
+reasoning configuration. The launcher now requires vLLM support for
+`--reasoning-config`, passes the Qwen `<think>`/`</think>` boundaries
+unconditionally, and uses the full CLI help surface for compatibility checks.
+Restart g3 after syncing this launcher; updating only the p7 client is not
+enough.
+
 ## Meaning of agent leaderboard Recall (%)
 
 The end-to-end leaderboard's `Recall (%)` has no fixed `K`. For query `q`, the

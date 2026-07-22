@@ -60,6 +60,7 @@ args=(
   --gpu-memory-utilization "$VLLM_GPU_MEMORY_UTILIZATION"
   --max-num-seqs "$VLLM_MAX_NUM_SEQS"
   --reasoning-parser qwen3
+  --reasoning-config "$VLLM_REASONING_CONFIG"
   --enable-auto-tool-choice
   --tool-call-parser "$VLLM_TOOL_CALL_PARSER"
   --generation-config vllm
@@ -69,12 +70,18 @@ args=(
 # vLLM's CLI surface changes between releases. FlashInfer is selected through
 # VLLM_ATTENTION_BACKEND; optional serve flags are added only when supported by
 # the exact installed build and their absence is recorded rather than hidden.
-VLLM_SERVE_HELP="$(vllm serve --help 2>&1)"
+VLLM_SERVE_HELP="$(vllm serve --help=all 2>&1 || vllm serve --help 2>&1)"
 VLLM_VERSION="$(vllm --version 2>&1 || true)"
 
 if [[ "$VLLM_TOOL_CALL_PARSER" == "qwen3_coder" && "$VLLM_SERVE_HELP" != *"qwen3_coder"* ]]; then
   echo "Installed $VLLM_VERSION does not provide the qwen3_coder tool-call parser." >&2
   echo "Upgrade the generator vLLM environment; do not substitute hermes for a Qwen3.6 benchmark run." >&2
+  exit 2
+fi
+
+if [[ "$VLLM_SERVE_HELP" != *"--reasoning-config"* ]]; then
+  echo "Installed $VLLM_VERSION does not provide --reasoning-config." >&2
+  echo "This generator cannot enforce --thinking-token-budget safely." >&2
   exit 2
 fi
 
@@ -89,12 +96,6 @@ elif supports_vllm_flag "--limit-mm-per-prompt"; then
   echo "vLLM lacks --language-model-only; disabling image/video with --limit-mm-per-prompt" >&2
 else
   echo "Warning: this vLLM cannot explicitly disable the multimodal encoder" >&2
-fi
-
-if supports_vllm_flag "--reasoning-config"; then
-  args+=(--reasoning-config "$VLLM_REASONING_CONFIG")
-else
-  echo "Warning: this vLLM cannot enforce --thinking-token-budget" >&2
 fi
 
 if supports_vllm_flag "--enable-per-request-metrics"; then
