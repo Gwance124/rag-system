@@ -366,7 +366,7 @@ class OssStandardAgentWorkflow:
             item_details = _output_item_details(output)
             normalized_output = []
             mcp_search_aliases = []
-            normalization_error: Exception | None = None
+            dropped_mcp_calls = []
             for item_index, item in enumerate(output):
                 if not isinstance(item, dict) or item.get("type") != "mcp_call":
                     normalized_output.append(item)
@@ -378,8 +378,22 @@ class OssStandardAgentWorkflow:
                         item_index=item_index,
                     )
                 except (ValueError, json.JSONDecodeError) as exc:
-                    normalization_error = exc
-                    break
+                    # Match the upstream OSS runner: it only recognizes
+                    # type=="function_call" items and silently ignores
+                    # anything else (including mcp_call items it can't
+                    # interpret), rather than treating the whole turn as an
+                    # error. We keep the item in history unmodified so the
+                    # model can see what it tried, but it never becomes a
+                    # function call.
+                    normalized_output.append(item)
+                    dropped_mcp_calls.append(
+                        {
+                            "item_index": item_index,
+                            "error_type": type(exc).__name__,
+                            "error_message": str(exc),
+                        }
+                    )
+                    continue
                 normalized_output.append(normalized_item)
                 mcp_search_aliases.append(recovery)
 
@@ -427,26 +441,16 @@ class OssStandardAgentWorkflow:
                     }
                 )
 
-            if normalization_error is not None:
-                run_error = {
-                    "type": type(normalization_error).__name__,
-                    "message": str(normalization_error),
-                }
-                status = "error"
-                termination_reason = (
-                    "unsupported_mcp_tool_call"
-                    if isinstance(
-                        normalization_error, UnsupportedMcpToolCallError
-                    )
-                    else "invalid_tool_call"
-                )
+            if dropped_mcp_calls:
+                # Non-fatal, unlike the old hard-abort: the upstream runner
+                # never validates these, it just never turns them into a
+                # function call either.
                 self._progress(
-                    "tool_call_rejected",
+                    "mcp_call_dropped",
                     turn=iteration,
-                    error=run_error,
+                    dropped_calls=dropped_mcp_calls,
                     output_item_details=item_details,
                 )
-                break
 
             current_turn = list(normalized_output)
 
@@ -480,6 +484,13 @@ class OssStandardAgentWorkflow:
                     termination_reason = "reasoning_only_retry"
                     continue
                 turns.append(current_turn)
+                # Match the upstream OSS runner exactly: it returns
+                # status "completed" as soon as a turn has no
+                # type=="function_call" items, regardless of whether any
+                # answer text was produced. This can end a run with no
+                # final answer; evaluate_run.py-style scoring already
+                # treats a missing answer as a parse failure downstream.
+                status = "completed"
                 termination_reason = "empty_or_unusable_response"
                 break
 

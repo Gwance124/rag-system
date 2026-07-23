@@ -171,11 +171,15 @@ def main() -> None:
                 f"search {event['search_call']}: failed "
                 f"{error['type']}: {error['message']}"
             )
-        elif name == "tool_call_rejected":
-            error = event["error"]
+        elif name == "mcp_call_dropped":
+            dropped = event["dropped_calls"]
+            details = "; ".join(
+                f"item {d['item_index']} {d['error_type']}: {d['error_message']}"
+                for d in dropped
+            )
             message = (
-                f"turn {event['turn']}: tool call rejected "
-                f"{error['type']}: {error['message']}"
+                f"turn {event['turn']}: dropped {len(dropped)} unrecognized "
+                f"mcp_call item(s) ({details}); not fed back, matching upstream"
             )
         elif name == "run_finished":
             format_valid = event.get("final_answer_format_valid")

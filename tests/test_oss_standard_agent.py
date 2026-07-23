@@ -268,7 +268,14 @@ def test_oss_standard_agent_normalizes_known_mcp_search_alias():
     assert generation_event["mcp_search_aliases"]
 
 
-def test_oss_standard_agent_rejects_non_search_mcp_call_explicitly():
+def test_oss_standard_agent_silently_drops_unsupported_mcp_call_like_upstream():
+    """Match search_agent/oss_client.py exactly: it only recognizes
+    type=="function_call" items. Anything else (including an mcp_call it
+    can't interpret) is never validated or fed back as an error — the turn
+    just has zero function_calls, and upstream unconditionally returns
+    status "completed" in that case, even with no answer text.
+    """
+
     progress_events = []
     responses = FakeResponsesClient(
         [
@@ -296,17 +303,26 @@ def test_oss_standard_agent_rejects_non_search_mcp_call_explicitly():
         progress_callback=progress_events.append,
     ).run(benchmark_query())
 
-    assert record["status"] == "error"
+    assert record["status"] == "completed"
     assert record["tool_call_counts"] == {"search": 0}
     assert record["diagnostics"]["termination_reason"] == (
-        "unsupported_mcp_tool_call"
+        "empty_or_unusable_response"
     )
-    assert record["error"]["type"] == "UnsupportedMcpToolCallError"
-    assert "browser.open" in record["error"]["message"]
+    assert "error" not in record
     assert [event["event"] for event in progress_events] == [
         "generation_started",
         "generation_completed",
-        "tool_call_rejected",
+        "mcp_call_dropped",
+    ]
+    assert progress_events[-1]["dropped_calls"] == [
+        {
+            "item_index": 0,
+            "error_type": "UnsupportedMcpToolCallError",
+            "error_message": (
+                "Standard OSS workflow rejected MCP recipient browser.open; "
+                "only local search aliases are permitted"
+            ),
+        }
     ]
 
 
