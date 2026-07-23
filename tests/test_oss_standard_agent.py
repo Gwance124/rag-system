@@ -3,7 +3,10 @@ from __future__ import annotations
 import json
 
 from rag_system.contracts import BenchmarkQuery
-from rag_system.workflows.oss_standard_agent import OssStandardAgentWorkflow
+from rag_system.workflows.oss_standard_agent import (
+    OSS_SEARCH_TOOLS,
+    OssStandardAgentWorkflow,
+)
 
 
 class FakeResponsesClient:
@@ -30,6 +33,35 @@ class FakeSearchClient:
 
 def benchmark_query():
     return BenchmarkQuery("q1", "private question", "answer", ("d0",), ("d0",))
+
+
+def test_oss_standard_tool_definition_matches_upstream_runner():
+    assert OSS_SEARCH_TOOLS == [
+        {
+            "type": "function",
+            "name": "local_knowledge_base_retrieval",
+            "description": (
+                "Perform a search on a knowledge source. Returns top-5 hits with "
+                "docid, score, and snippet. The snippet contains the document's "
+                "contents (may be truncated based on token limits)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "user_query": {
+                        "type": "string",
+                        "description": (
+                            "Query to search the local knowledge base for relevant "
+                            "information"
+                        ),
+                    }
+                },
+                "required": ["user_query"],
+                "additionalProperties": False,
+            },
+            "strict": True,
+        }
+    ]
 
 
 def test_oss_standard_agent_runs_search_then_returns_answer():
@@ -90,6 +122,14 @@ def test_oss_standard_agent_runs_search_then_returns_answer():
     assert record["result"][0]["type"] == "reasoning"
     assert record["result"][-1]["type"] == "output_text"
     assert record["diagnostics"]["termination_reason"] == "final_answer"
+    assert record["diagnostics"]["final_answer_validation"] == {
+        "valid": True,
+        "has_explanation": True,
+        "has_exact_answer": True,
+        "has_confidence": True,
+        "citation_count": 1,
+        "missing_fields": [],
+    }
     search_step = record["diagnostics"]["search_steps"][0]
     assert search_step["evidence"]["turn_recall_at_5"] == 1.0
     assert search_step["evidence"]["turn_ndcg_at_5"] == 1.0
@@ -98,6 +138,7 @@ def test_oss_standard_agent_runs_search_then_returns_answer():
     second_input = responses.requests[1][0]
     assert second_input[-1]["type"] == "function_call_output"
     assert second_input[-1]["call_id"] == "call-1"
+    assert second_input[-1]["output"].startswith('[\n  {\n    "docid": "d0"')
     assert [event["event"] for event in progress_events] == [
         "generation_started",
         "generation_completed",
@@ -266,6 +307,48 @@ def test_oss_standard_agent_rejects_non_search_mcp_call_explicitly():
         "generation_completed",
         "tool_call_rejected",
     ]
+
+
+def test_oss_standard_agent_marks_refusal_final_as_invalid_format():
+    responses = FakeResponsesClient(
+        [
+            {
+                "id": "resp-1",
+                "status": "completed",
+                "usage": None,
+                "output": [
+                    {
+                        "type": "message",
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": (
+                                    "**Explanation:** I cannot provide a "
+                                    "definitive answer or credible citations."
+                                ),
+                            }
+                        ],
+                    }
+                ],
+            }
+        ]
+    )
+
+    record = OssStandardAgentWorkflow(
+        responses,
+        FakeSearchClient(),
+    ).run(benchmark_query())
+
+    assert record["status"] == "completed"
+    assert record["diagnostics"]["termination_reason"] == "final_answer"
+    assert record["diagnostics"]["final_answer_validation"] == {
+        "valid": False,
+        "has_explanation": True,
+        "has_exact_answer": False,
+        "has_confidence": False,
+        "citation_count": 0,
+        "missing_fields": ["Exact Answer", "Confidence", "document citation"],
+    }
 
 
 def test_oss_standard_agent_preserves_partial_run_after_generation_error():

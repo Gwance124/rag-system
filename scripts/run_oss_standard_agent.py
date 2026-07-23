@@ -15,7 +15,12 @@ from pathlib import Path
 from rag_system.datasets.browsecomp_plus import load_prepared_development_query
 from rag_system.generation.vllm_responses import VllmResponsesClient
 from rag_system.retrieval.search_service import StandardSearchClient
-from rag_system.workflows.oss_standard_agent import OssStandardAgentWorkflow
+from rag_system.workflows.oss_standard_agent import (
+    BROWSECOMP_PLUS_OSS_COMMIT,
+    BROWSECOMP_PLUS_OSS_REPOSITORY,
+    BROWSECOMP_PLUS_OSS_RUNNER,
+    OssStandardAgentWorkflow,
+)
 
 
 def atomic_private_json(path: Path, payload: dict) -> None:
@@ -166,11 +171,18 @@ def main() -> None:
                 f"{error['type']}: {error['message']}"
             )
         elif name == "run_finished":
+            format_valid = event.get("final_answer_format_valid")
+            format_summary = (
+                ""
+                if format_valid is None
+                else f" final_format_valid={format_valid}"
+            )
             message = (
                 f"run finished status={event['status']} "
                 f"termination={event['termination_reason']} "
                 f"searches={event['search_calls']} "
                 f"unique_documents={event['unique_retrieved_documents']}"
+                f"{format_summary}"
             )
         else:
             message = json.dumps(event, sort_keys=True)
@@ -206,6 +218,7 @@ def main() -> None:
             "error": {"type": type(exc).__name__, "message": str(exc)},
         }
     diagnostics = record.get("diagnostics") or {}
+    final_answer_validation = diagnostics.get("final_answer_validation") or {}
     progress(
         {
             "event": "run_finished",
@@ -213,6 +226,7 @@ def main() -> None:
             "termination_reason": diagnostics.get("termination_reason", "exception"),
             "search_calls": record["tool_call_counts"].get("search", 0),
             "unique_retrieved_documents": len(record["retrieved_docids"]),
+            "final_answer_format_valid": final_answer_validation.get("valid"),
         }
     )
     record["metadata"] = {
@@ -227,6 +241,11 @@ def main() -> None:
         "max_search_calls": args.max_search_calls,
         "generator_timeout_seconds": args.generator_timeout_seconds,
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
+        "upstream_reference": {
+            "repository": BROWSECOMP_PLUS_OSS_REPOSITORY,
+            "commit": BROWSECOMP_PLUS_OSS_COMMIT,
+            "runner": BROWSECOMP_PLUS_OSS_RUNNER,
+        },
     }
     atomic_private_json(output_path, record)
     print(

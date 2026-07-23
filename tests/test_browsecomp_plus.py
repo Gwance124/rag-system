@@ -17,6 +17,7 @@ from rag_system.datasets.browsecomp_plus import (
     decrypt_record,
     make_hash_split,
     load_prepared_development_query,
+    load_prepared_development_query_ids,
     query_from_decrypted_row,
     query_from_encrypted_row,
     validate_benchmark,
@@ -211,6 +212,7 @@ def test_prepared_artifacts_are_private_and_manifest_has_no_plaintext(tmp_path):
 
     loaded = load_prepared_development_query(output, split.development_query_ids[0])
     assert loaded.query_id == split.development_query_ids[0]
+    assert load_prepared_development_query_ids(output) == split.development_query_ids
 
 
 def test_prepared_query_loader_rejects_held_out_id(tmp_path):

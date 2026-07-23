@@ -370,12 +370,8 @@ def load_prepared_development_query(
 ) -> BenchmarkQuery:
     """Load one query only when it belongs to the frozen development split."""
     root = Path(prepared_dir).expanduser().resolve()
-    try:
-        split = json.loads((root / "split.json").read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise DatasetValidationError(f"cannot read prepared split under {root}") from exc
-    development_ids = split.get("development_query_ids")
-    if not isinstance(development_ids, list) or query_id not in development_ids:
+    development_ids = load_prepared_development_query_ids(root)
+    if query_id not in development_ids:
         raise DatasetValidationError(
             f"query ID {query_id!r} is not in the frozen development split"
         )
@@ -399,6 +395,32 @@ def load_prepared_development_query(
     raise DatasetValidationError(
         f"query ID {query_id!r} is absent from the prepared query artifact"
     )
+
+
+def load_prepared_development_query_ids(
+    prepared_dir: str | Path,
+) -> tuple[str, ...]:
+    """Load the frozen development IDs in their recorded deterministic order."""
+
+    root = Path(prepared_dir).expanduser().resolve()
+    try:
+        split = json.loads((root / "split.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise DatasetValidationError(f"cannot read prepared split under {root}") from exc
+    development_ids = split.get("development_query_ids")
+    if (
+        not isinstance(development_ids, list)
+        or not development_ids
+        or any(
+            not isinstance(query_id, str) or not query_id
+            for query_id in development_ids
+        )
+        or len(set(development_ids)) != len(development_ids)
+    ):
+        raise DatasetValidationError(
+            f"prepared split under {root} has invalid development query IDs"
+        )
+    return tuple(development_ids)
 
 
 def _atomic_private_write(path: Path, content: str) -> None:

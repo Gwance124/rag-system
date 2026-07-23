@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -14,20 +15,28 @@ from rag_system.workflows.standard_agent import (
 )
 
 
+BROWSECOMP_PLUS_OSS_REPOSITORY = "https://github.com/texttron/BrowseComp-Plus"
+BROWSECOMP_PLUS_OSS_COMMIT = "046949032b0328319cc9a02663a759ec601d9402"
+BROWSECOMP_PLUS_OSS_RUNNER = "search_agent/oss_client.py"
+
 OSS_SEARCH_TOOLS = [
     {
         "type": "function",
         "name": "local_knowledge_base_retrieval",
         "description": (
-            "Search the local knowledge base. Returns the top 5 results with docid, "
-            "score, and a snippet containing at most the first 512 document tokens."
+            "Perform a search on a knowledge source. Returns top-5 hits with "
+            "docid, score, and snippet. The snippet contains the document's "
+            "contents (may be truncated based on token limits)."
         ),
         "parameters": {
             "type": "object",
             "properties": {
                 "user_query": {
                     "type": "string",
-                    "description": "Query to search the local knowledge base for.",
+                    "description": (
+                        "Query to search the local knowledge base for relevant "
+                        "information"
+                    ),
                 }
             },
             "required": ["user_query"],
@@ -85,6 +94,51 @@ def _message_text(item: dict[str, Any]) -> str:
     return "\n".join(
         _text_parts(item.get("content"), {"output_text", "text"})
     ).strip()
+
+
+def _validate_final_answer(text: str) -> dict[str, Any]:
+    """Check the required BrowseComp-Plus fields without changing the response."""
+
+    label_prefix = r"(?im)^\s*(?:\*\*)?"
+    label_suffix = r"(?:\*\*)?\s*"
+    has_explanation = (
+        re.search(label_prefix + r"Explanation:" + label_suffix + r"\S", text)
+        is not None
+    )
+    has_exact_answer = (
+        re.search(label_prefix + r"Exact Answer:" + label_suffix + r"\S", text)
+        is not None
+    )
+    confidence_match = re.search(
+        label_prefix
+        + r"Confidence:"
+        + label_suffix
+        + r"(?P<value>\d{1,3}(?:\.\d+)?)\s*%",
+        text,
+    )
+    has_confidence = False
+    if confidence_match is not None:
+        confidence = float(confidence_match.group("value"))
+        has_confidence = 0.0 <= confidence <= 100.0
+    citation_count = len(re.findall(r"\[[^\[\]\n]+\]", text))
+
+    missing_fields = []
+    if not has_explanation:
+        missing_fields.append("Explanation")
+    if not has_exact_answer:
+        missing_fields.append("Exact Answer")
+    if not has_confidence:
+        missing_fields.append("Confidence")
+    if citation_count == 0:
+        missing_fields.append("document citation")
+    return {
+        "valid": not missing_fields,
+        "has_explanation": has_explanation,
+        "has_exact_answer": has_exact_answer,
+        "has_confidence": has_confidence,
+        "citation_count": citation_count,
+        "missing_fields": missing_fields,
+    }
 
 
 def _output_item_details(output: list[Any]) -> list[dict[str, Any]]:
@@ -235,6 +289,7 @@ class OssStandardAgentWorkflow:
         status = "incomplete"
         termination_reason = "max_iterations"
         run_error: dict[str, str] | None = None
+        final_answer_validation: dict[str, Any] | None = None
 
         for iteration in range(1, self.max_iterations + 1):
             self._progress(
@@ -349,6 +404,7 @@ class OssStandardAgentWorkflow:
                     text for text in (_message_text(item) for item in message_items) if text
                 ).strip()
                 if final_text:
+                    final_answer_validation = _validate_final_answer(final_text)
                     results.append(
                         {
                             "type": "output_text",
@@ -450,7 +506,9 @@ class OssStandardAgentWorkflow:
                 }
                 search_steps.append(search_step)
                 self._progress("search_completed", **search_step)
-                tool_output = json.dumps(hits, ensure_ascii=False)
+                # Match BrowseComp-Plus/search_agent/oss_client.py exactly:
+                # whitespace is part of the tool result seen by the model.
+                tool_output = json.dumps(hits, indent=2, ensure_ascii=False)
                 results.append(
                     {
                         "type": "tool_call",
@@ -485,6 +543,7 @@ class OssStandardAgentWorkflow:
                 "generation_steps": generation_steps,
                 "search_steps": search_steps,
                 "termination_reason": termination_reason,
+                "final_answer_validation": final_answer_validation,
             },
         }
         if run_error is not None:
