@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 from rag_system.contracts import BenchmarkQuery
+from rag_system.generation.vllm_responses import VllmContextLengthError
 from rag_system.workflows.oss_standard_agent import (
     OSS_SEARCH_TOOLS,
     OssStandardAgentWorkflow,
@@ -382,3 +383,48 @@ def test_oss_standard_agent_preserves_partial_run_after_generation_error():
     assert record["tool_call_counts"] == {"search": 1}
     assert record["error"] == {"type": "TimeoutError", "message": "timed out"}
     assert record["diagnostics"]["termination_reason"] == "generation_request_error"
+
+
+def test_oss_standard_agent_records_context_exhaustion_as_incomplete():
+    class ContextLimitedResponsesClient:
+        def __init__(self):
+            self.calls = 0
+
+        def complete(self, input_items, tools):
+            self.calls += 1
+            if self.calls == 2:
+                raise VllmContextLengthError(
+                    "prompt is too long",
+                    prompt_tokens=131_848,
+                    max_model_len=131_072,
+                )
+            return {
+                "id": "resp-1",
+                "status": "completed",
+                "usage": None,
+                "output": [
+                    {
+                        "type": "function_call",
+                        "name": "local_knowledge_base_retrieval",
+                        "call_id": "call-1",
+                        "arguments": json.dumps({"user_query": "first search"}),
+                    }
+                ],
+            }
+
+    record = OssStandardAgentWorkflow(
+        ContextLimitedResponsesClient(),
+        FakeSearchClient(),
+    ).run(benchmark_query())
+
+    assert record["status"] == "incomplete"
+    assert record["tool_call_counts"] == {"search": 1}
+    assert record["diagnostics"]["termination_reason"] == (
+        "context_length_exceeded"
+    )
+    assert record["error"] == {
+        "type": "VllmContextLengthError",
+        "message": "prompt is too long",
+        "prompt_tokens": 131_848,
+        "max_model_len": 131_072,
+    }

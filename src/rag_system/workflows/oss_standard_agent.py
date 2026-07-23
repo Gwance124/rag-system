@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from rag_system.contracts import BenchmarkQuery
+from rag_system.generation.vllm_responses import VllmContextLengthError
 from rag_system.workflows.standard_agent import (
     STANDARD_AGENT_PROMPT,
     _ranked_label_metrics,
@@ -288,7 +289,7 @@ class OssStandardAgentWorkflow:
         search_calls = 0
         status = "incomplete"
         termination_reason = "max_iterations"
-        run_error: dict[str, str] | None = None
+        run_error: dict[str, Any] | None = None
         final_answer_validation: dict[str, Any] | None = None
 
         for iteration in range(1, self.max_iterations + 1):
@@ -299,6 +300,17 @@ class OssStandardAgentWorkflow:
             )
             try:
                 response = self.responses_client.complete(input_items, OSS_SEARCH_TOOLS)
+            except VllmContextLengthError as exc:
+                run_error = {
+                    "type": type(exc).__name__,
+                    "message": str(exc),
+                    "prompt_tokens": exc.prompt_tokens,
+                    "max_model_len": exc.max_model_len,
+                }
+                status = "incomplete"
+                termination_reason = "context_length_exceeded"
+                self._progress("generation_failed", turn=iteration, error=run_error)
+                break
             except Exception as exc:
                 run_error = {"type": type(exc).__name__, "message": str(exc)}
                 status = "error"

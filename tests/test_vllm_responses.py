@@ -1,8 +1,15 @@
 from __future__ import annotations
 
+import io
 import json
+import urllib.error
 
-from rag_system.generation.vllm_responses import VllmResponsesClient
+import pytest
+
+from rag_system.generation.vllm_responses import (
+    VllmContextLengthError,
+    VllmResponsesClient,
+)
 
 
 class FakeResponse:
@@ -60,3 +67,40 @@ def test_vllm_responses_sends_high_effort_tool_request(monkeypatch):
     assert result["status"] == "completed"
     assert result["usage"] == {"input_tokens": 10, "output_tokens": 2}
     assert result["incomplete_details"] is None
+
+
+def test_vllm_responses_classifies_harmony_context_overflow(monkeypatch):
+    body = json.dumps(
+        {
+            "error": {
+                "message": (
+                    "The engine prompt length 131848 exceeds the "
+                    "max_model_len 131072. Please reduce prompt."
+                ),
+                "type": "invalid_request_error",
+                "param": "input",
+                "code": 400,
+            }
+        }
+    ).encode()
+
+    def fake_urlopen(request, timeout):
+        raise urllib.error.HTTPError(
+            request.full_url,
+            400,
+            "Bad Request",
+            {},
+            io.BytesIO(body),
+        )
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    client = VllmResponsesClient(
+        "http://generator.test/v1",
+        "openai/gpt-oss-20b",
+    )
+
+    with pytest.raises(VllmContextLengthError) as raised:
+        client.complete([{"role": "user", "content": "question"}], [])
+
+    assert raised.value.prompt_tokens == 131_848
+    assert raised.value.max_model_len == 131_072

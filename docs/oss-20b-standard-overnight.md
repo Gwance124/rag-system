@@ -15,23 +15,41 @@ The prompt, `local_knowledge_base_retrieval` tool definition, indented JSON
 tool output, reasoning settings, 10,000-token per-turn output cap, and
 100-iteration limit follow the upstream OSS runner.
 
+The upstream client requests `truncation: auto`, but older vLLM GPT-OSS
+Harmony/Responses implementations can still return HTTP 400 once the rendered
+transcript reaches the native 131,072-token context. The runner records that
+query as `status: incomplete` with
+`termination_reason: context_length_exceeded`; the batch then continues to the
+next query. This is a failed benchmark row, not a reason to abort the remaining
+development split or to advertise a larger synthetic context window.
+
 ## Preflight
 
 On p7, set paths without placing decrypted benchmark text in the shell history:
 
 ```bash
 cd /mnt/nvme2/mlee/rag-system
-export RAG_PREPARED_DIR=/path/to/prepared/browsecomp-plus
+
+# Locate the preparation output. Use the directory containing split.json.
+find /mnt/nvme2/mlee/rag-system -type f \
+  -path '*/datasets/browsecomp-plus/split.json' -print
+
+export RAG_ARTIFACT_ROOT=/actual/artifact/root
+export RAG_PREPARED_DIR="$RAG_ARTIFACT_ROOT/datasets/browsecomp-plus"
 export RAG_RUN_DIR=/mnt/nvme2/mlee/rag-system/results/runs/gpt-oss-20b/high/standard/development
 export RAG_GENERATOR_URL=http://solab-g3:8000/v1
 export RAG_SEARCH_URL=http://127.0.0.1:8012
 
+test -f "$RAG_PREPARED_DIR/split.json"
+test -f "$RAG_PREPARED_DIR/queries.decrypted.jsonl"
+python -c 'import json, os; p=os.environ["RAG_PREPARED_DIR"] + "/split.json"; print("development queries:", len(json.load(open(p))["development_query_ids"]))'
 curl -fsS "$RAG_SEARCH_URL/health"
 curl -fsS "$RAG_GENERATOR_URL/models"
 ```
 
 The search response must report `top_k: 5` and `snippet_max_tokens: 512`; the
-model response must list `openai/gpt-oss-20b`.
+model response must list `openai/gpt-oss-20b`, and the split check must print
+`development queries: 100`.
 
 ## Generator
 
@@ -59,7 +77,8 @@ Start a separate tmux session on p7:
 ```bash
 tmux new -s oss20b-development
 cd /mnt/nvme2/mlee/rag-system
-export RAG_PREPARED_DIR=/path/to/prepared/browsecomp-plus
+export RAG_ARTIFACT_ROOT=/actual/artifact/root
+export RAG_PREPARED_DIR="$RAG_ARTIFACT_ROOT/datasets/browsecomp-plus"
 export RAG_RUN_DIR=/mnt/nvme2/mlee/rag-system/results/runs/gpt-oss-20b/high/standard/development
 export RAG_GENERATOR_URL=http://solab-g3:8000/v1
 export RAG_SEARCH_URL=http://127.0.0.1:8012
@@ -91,8 +110,10 @@ plus `batch_summary.json`. It skips valid existing run artifacts. If the
 process or host stops during a query, run the exact same command again; the
 orphaned per-query progress log is replaced and that query is restarted.
 
-The batch stops on the first new error row so a failed service cannot poison
-the rest of the split. After correcting the service, rerun that query with the
-single-query command and `--force`, then launch the same batch command again.
-Completed refusals remain completed rows and are reported through
+The batch stops on the first new infrastructure/error row so a failed service
+cannot poison the rest of the split. A native context exhaustion is instead
+retained as an `incomplete` row and the next query runs. After correcting an
+infrastructure failure, rerun that query with the single-query command and
+`--force`, then launch the same batch command again. Completed refusals remain
+completed rows and are reported through
 `diagnostics.final_answer_validation`; they are not silently discarded.

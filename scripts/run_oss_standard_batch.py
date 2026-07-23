@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from rag_system.datasets.browsecomp_plus import (
+    DEFAULT_DEVELOPMENT_COUNT,
     load_prepared_development_query_ids,
 )
 from rag_system.workflows.oss_standard_agent import (
@@ -51,6 +52,12 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     os.chmod(output_dir, 0o700)
     query_ids = load_prepared_development_query_ids(prepared_dir)
+    if len(query_ids) != DEFAULT_DEVELOPMENT_COUNT:
+        parser.error(
+            "prepared split has "
+            f"{len(query_ids)} development queries; expected "
+            f"{DEFAULT_DEVELOPMENT_COUNT}"
+        )
     preflight_oss_standard_services(
         args.search_url,
         args.generator_url,

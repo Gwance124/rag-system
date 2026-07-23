@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 
@@ -88,6 +91,53 @@ def test_resumable_batch_refuses_corrupt_existing_artifact(tmp_path):
         )
 
 
+def test_resumable_batch_continues_after_incomplete_query(tmp_path):
+    executed = []
+
+    def execute(query_id: str) -> dict:
+        executed.append(query_id)
+        status = "incomplete" if query_id == "q1" else "completed"
+        return record(query_id, status)
+
+    summary = run_resumable_development_batch(
+        ("q1", "q2"),
+        tmp_path / "runs",
+        execute,
+    )
+
+    assert executed == ["q1", "q2"]
+    assert summary.stopped_on_error is False
+    assert summary.remaining_query_count == 0
+    assert summary.to_dict()["status_counts"] == {
+        "completed": 1,
+        "incomplete": 1,
+    }
+
+
+def test_resumable_batch_skips_existing_error_and_continues(tmp_path):
+    output_dir = tmp_path / "runs"
+    atomic_private_json(output_dir / "run_703.json", record("703", "error"))
+    executed = []
+
+    def execute(query_id: str) -> dict:
+        executed.append(query_id)
+        return record(query_id)
+
+    summary = run_resumable_development_batch(
+        ("703", "704"),
+        output_dir,
+        execute,
+    )
+
+    assert executed == ["704"]
+    assert summary.stopped_on_error is False
+    assert summary.remaining_query_count == 0
+    assert summary.to_dict()["status_counts"] == {
+        "completed": 1,
+        "error": 1,
+    }
+
+
 class FakeResponse:
     def __init__(self, payload: dict) -> None:
         self.payload = payload
@@ -126,3 +176,36 @@ def test_batch_preflight_validates_search_contract_and_served_model(monkeypatch)
         ("http://search.test/health", 3.0),
         ("http://generator.test/v1/models", 3.0),
     ]
+
+
+def test_batch_cli_rejects_nonstandard_development_count(tmp_path):
+    prepared_dir = tmp_path / "prepared"
+    prepared_dir.mkdir()
+    (prepared_dir / "split.json").write_text(
+        json.dumps({"development_query_ids": ["703"]}),
+        encoding="utf-8",
+    )
+    script = (
+        Path(__file__).resolve().parents[1]
+        / "scripts"
+        / "run_oss_standard_batch.py"
+    )
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            "--prepared-dir",
+            str(prepared_dir),
+            "--generator-url",
+            "http://generator.test/v1",
+            "--output-dir",
+            str(tmp_path / "runs"),
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert completed.returncode == 2
+    assert "has 1 development queries; expected 100" in completed.stderr
