@@ -120,6 +120,17 @@ def preflight_oss_standard_services(
             "search preflight did not report the Standard top-5/512 contract"
         )
 
+    preflight_generator(generator_url, model, timeout_seconds=timeout_seconds)
+
+
+def preflight_generator(
+    generator_url: str,
+    model: str,
+    *,
+    timeout_seconds: float = 10.0,
+) -> None:
+    """Fail before a batch if the generator does not serve the pinned model."""
+
     models_url = f"{generator_url.rstrip('/')}/models"
     models = _get_json(models_url, timeout_seconds).get("data")
     served_model_ids: set[str] = set()

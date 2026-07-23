@@ -152,6 +152,22 @@ class FakeResponse:
         return json.dumps(self.payload).encode()
 
 
+def test_generator_preflight_rejects_missing_served_model(monkeypatch):
+    from rag_system.workflows.oss_standard_batch import preflight_generator
+
+    def fake_urlopen(request, timeout):
+        return FakeResponse({"data": [{"id": "some/other-model"}]})
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    with pytest.raises(RuntimeError, match="served model"):
+        preflight_generator(
+            "http://generator.test/v1",
+            "openai/gpt-oss-20b",
+            timeout_seconds=3.0,
+        )
+
+
 def test_batch_preflight_validates_search_contract_and_served_model(monkeypatch):
     requested_urls = []
 

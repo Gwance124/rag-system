@@ -45,6 +45,31 @@ class StandardSearchContractError(ValueError):
     """Raised when a backend result cannot be exposed as a Standard result."""
 
 
+def prefix_snippet(
+    tokenizer: SnippetTokenizer,
+    text: str,
+    max_tokens: int,
+) -> tuple[str, int]:
+    """Return the longest document prefix that re-encodes within the budget."""
+
+    token_ids = tokenizer.encode(text, add_special_tokens=False)
+    if len(token_ids) <= max_tokens:
+        return text, len(token_ids)
+
+    prefix_length = max_tokens
+    while prefix_length > 0:
+        snippet = tokenizer.decode(
+            token_ids[:prefix_length],
+            skip_special_tokens=True,
+        )
+        rendered_count = len(tokenizer.encode(snippet, add_special_tokens=False))
+        if rendered_count <= max_tokens:
+            return snippet, rendered_count
+        prefix_length -= 1
+
+    return "", 0
+
+
 class StandardSearchTool:
     """Validate and truncate one dynamic document-level search response."""
 
@@ -113,21 +138,4 @@ class StandardSearchTool:
         )
 
     def _prefix_snippet(self, text: str) -> tuple[str, int]:
-        token_ids = self.tokenizer.encode(text, add_special_tokens=False)
-        if len(token_ids) <= self.snippet_max_tokens:
-            return text, len(token_ids)
-
-        prefix_length = self.snippet_max_tokens
-        while prefix_length > 0:
-            snippet = self.tokenizer.decode(
-                token_ids[:prefix_length],
-                skip_special_tokens=True,
-            )
-            rendered_count = len(
-                self.tokenizer.encode(snippet, add_special_tokens=False)
-            )
-            if rendered_count <= self.snippet_max_tokens:
-                return snippet, rendered_count
-            prefix_length -= 1
-
-        return "", 0
+        return prefix_snippet(self.tokenizer, text, self.snippet_max_tokens)

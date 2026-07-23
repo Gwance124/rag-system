@@ -8,12 +8,16 @@ active design is documented in
 
 The current execution state and the latest decisions that supersede stale
 parts of that plan are documented in
-`docs/progress/2026-07-22-qwen3-embedding-baseline-handoff.md`. Read that
-handoff before proposing commands or changing the experiment. In particular,
-the official Qwen3-Embedding-8B retrieval reproduction and a live dynamic
-BrowseComp-Plus Standard search call have passed. The next gate is a persistent
-p7 search service connected to one Qwen3.6-27B search-only agent trajectory;
-both runtime components now exist but have not passed the live two-host gate.
+`docs/progress/2026-07-23-pinned-vllm-and-single-pass.md` (which itself
+supersedes only the generator sections of
+`docs/progress/2026-07-22-qwen3-embedding-baseline-handoff.md`). Read both
+before proposing commands or changing the experiment. The Qwen3-Embedding-8B
+retrieval reproduction and the persistent p7 Standard search service have
+passed. The generator baseline is now gpt-oss-20b; its Harmony tool-calling
+failures were diagnosed as bugs in the bare-metal g3 vLLM build. The next
+gates are (a) a dev-100 recall parity batch against the pinned upstream vLLM
+image and (b) the no-tool single-pass baseline over the frozen ranking, per
+`docs/oss-20b-pinned-generator-parity.md`.
 
 `old/` is an archive of the scientific-retrieval and LaTeX-chunking work. Do
 not add features there, import it from new code, or use QASPER as a benchmark
@@ -45,14 +49,17 @@ split and do not inspect held-out results while tuning. WixQA is only a backup
 pipeline sanity check. Do not introduce QASPER or TREC RAG into the new
 experiments.
 
-Week 1 now targets the instrumented BrowseComp-Plus Standard baseline:
-Qwen3.6-27B, Qwen3-Embedding-8B with the official precomputed document index,
-a search-only tool returning top 5 results, and at most 512 tokens per result.
-Do not add `get_document`, custom chunking, reranking, context-budget sweeps,
-subagents, concurrency experiments, or an LLM judge before that baseline
-passes. The fixed-query retrieval-only reproduction and a one-query dynamic
-search smoke are complete. Persistent search and the agent runner are
-implemented and unit-tested, but one live saved trajectory is still required.
+Week 1 now targets two BrowseComp-Plus baselines with gpt-oss-20b and
+Qwen3-Embedding-8B on the official precomputed document index: (a) the
+Standard agent baseline (search-only tool, top 5 results, at most 512 tokens
+per result) served from the pinned upstream vLLM image for leaderboard recall
+parity, and (b) the no-tool single-pass baseline over the frozen top-1000
+ranking with a top-k in {5, 10, 20} sweep. Do not add `get_document`, custom
+chunking, reranking, subagents, concurrency experiments, or an LLM judge
+before those baselines pass. Keep parity rows (upstream server defaults) and
+measurement rows (instrumented sequential scaffold, prefix caching disabled)
+in separate run directories; never report latency or KV metrics from a
+parity server.
 
 Measurement hardware is the two-A100 80 GB `solab-g3` host: use the PCIe A100
 for Qwen3-Embedding-8B retrieval and the SXM4 A100 for Qwen3.6-27B generation.
