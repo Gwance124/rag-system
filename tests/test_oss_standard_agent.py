@@ -268,12 +268,13 @@ def test_oss_standard_agent_normalizes_known_mcp_search_alias():
     assert generation_event["mcp_search_aliases"]
 
 
-def test_oss_standard_agent_silently_drops_unsupported_mcp_call_like_upstream():
-    """Match search_agent/oss_client.py exactly: it only recognizes
-    type=="function_call" items. Anything else (including an mcp_call it
-    can't interpret) is never validated or fed back as an error — the turn
-    just has zero function_calls, and upstream unconditionally returns
-    status "completed" in that case, even with no answer text.
+def test_oss_standard_agent_retries_after_rejecting_unsupported_mcp_call():
+    """Unlike upstream's silent drop (search_agent/oss_client.py only
+    recognizes type=="function_call" items and never validates an mcp_call
+    it can't interpret) or this workflow's prior hard-abort, an unsupported
+    mcp_call is now turned into a synthetic function_call /
+    function_call_output error pair so the model can see why it failed and
+    retry with the real search tool on its next turn.
     """
 
     progress_events = []
@@ -293,7 +294,42 @@ def test_oss_standard_agent_silently_drops_unsupported_mcp_call_like_upstream():
                         "arguments": json.dumps({"url": "cursor:1"}),
                     }
                 ],
-            }
+            },
+            {
+                "id": "resp-2",
+                "status": "completed",
+                "usage": None,
+                "output": [
+                    {
+                        "type": "function_call",
+                        "name": "local_knowledge_base_retrieval",
+                        "call_id": "call-1",
+                        "arguments": json.dumps({"user_query": "retry search"}),
+                    }
+                ],
+            },
+            {
+                "id": "resp-3",
+                "status": "completed",
+                "usage": None,
+                "output": [
+                    {
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": (
+                                    "Explanation: done\n"
+                                    "Exact Answer: answer\n"
+                                    "Confidence: 90%\n"
+                                    "[d0]"
+                                ),
+                            }
+                        ],
+                    }
+                ],
+            },
         ]
     )
 
@@ -304,17 +340,16 @@ def test_oss_standard_agent_silently_drops_unsupported_mcp_call_like_upstream():
     ).run(benchmark_query())
 
     assert record["status"] == "completed"
-    assert record["tool_call_counts"] == {"search": 0}
-    assert record["diagnostics"]["termination_reason"] == (
-        "empty_or_unusable_response"
-    )
-    assert "error" not in record
-    assert [event["event"] for event in progress_events] == [
+    assert record["diagnostics"]["termination_reason"] == "final_answer"
+    assert record["tool_call_counts"] == {"search": 1}
+    assert record["diagnostics"]["search_steps"][0]["query"] == "retry search"
+
+    assert [event["event"] for event in progress_events][:3] == [
         "generation_started",
         "generation_completed",
-        "mcp_call_dropped",
+        "mcp_call_rejected",
     ]
-    assert progress_events[-1]["dropped_calls"] == [
+    assert progress_events[2]["rejected_calls"] == [
         {
             "item_index": 0,
             "error_type": "UnsupportedMcpToolCallError",
@@ -324,6 +359,24 @@ def test_oss_standard_agent_silently_drops_unsupported_mcp_call_like_upstream():
             ),
         }
     ]
+
+    # The retry request must actually include the rejection pair so the
+    # model sees why its first attempt failed.
+    second_request_items = responses.requests[1][0]
+    rejected_items = [
+        item
+        for item in second_request_items
+        if item.get("call_id") == "call_mcp_reject_1_0"
+    ]
+    assert {item["type"] for item in rejected_items} == {
+        "function_call",
+        "function_call_output",
+    }
+    rejected_output = next(
+        item for item in rejected_items if item["type"] == "function_call_output"
+    )
+    assert "no such tool" in rejected_output["output"]
+    assert "local_knowledge_base_retrieval" in rejected_output["output"]
 
 
 def test_oss_standard_agent_marks_refusal_final_as_invalid_format():
@@ -368,14 +421,20 @@ def test_oss_standard_agent_marks_refusal_final_as_invalid_format():
     }
 
 
-def test_oss_standard_agent_preserves_partial_run_after_generation_error():
-    class FailingResponsesClient:
+def test_oss_standard_agent_retries_transient_generation_error_and_continues():
+    """A one-off generation request error (e.g. a transient vLLM/Harmony
+    server error such as vllm-project/vllm#23567) should not throw away an
+    otherwise-healthy trajectory. Unlike the old hard-abort-on-first-error
+    behavior, it's retried up to max_generation_retries times.
+    """
+
+    class FlakyResponsesClient:
         def __init__(self):
             self.calls = 0
 
         def complete(self, input_items, tools):
             self.calls += 1
-            if self.calls == 2:
+            if self.calls == 1:
                 raise TimeoutError("timed out")
             return {
                 "id": "resp-1",
@@ -383,22 +442,71 @@ def test_oss_standard_agent_preserves_partial_run_after_generation_error():
                 "usage": None,
                 "output": [
                     {
-                        "type": "function_call",
-                        "name": "local_knowledge_base_retrieval",
-                        "call_id": "call-1",
-                        "arguments": json.dumps({"user_query": "first search"}),
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": (
+                                    "Explanation: done\n"
+                                    "Exact Answer: answer\n"
+                                    "Confidence: 90%\n"
+                                    "[d0]"
+                                ),
+                            }
+                        ],
                     }
                 ],
             }
 
+    progress_events = []
     record = OssStandardAgentWorkflow(
-        FailingResponsesClient(), FakeSearchClient()
+        FlakyResponsesClient(),
+        FakeSearchClient(),
+        progress_callback=progress_events.append,
+    ).run(benchmark_query())
+
+    assert record["status"] == "completed"
+    assert record["diagnostics"]["termination_reason"] == "final_answer"
+    assert [event["event"] for event in progress_events][:2] == [
+        "generation_started",
+        "generation_retrying",
+    ]
+    assert progress_events[1]["attempt"] == 1
+    assert progress_events[1]["max_generation_retries"] == 2
+    assert progress_events[1]["error"] == {
+        "type": "TimeoutError",
+        "message": "timed out",
+    }
+
+
+def test_oss_standard_agent_gives_up_after_exhausting_generation_retries():
+    class AlwaysFailingResponsesClient:
+        def __init__(self):
+            self.calls = 0
+
+        def complete(self, input_items, tools):
+            self.calls += 1
+            raise TimeoutError(f"timed out (call {self.calls})")
+
+    progress_events = []
+    record = OssStandardAgentWorkflow(
+        AlwaysFailingResponsesClient(),
+        FakeSearchClient(),
+        progress_callback=progress_events.append,
     ).run(benchmark_query())
 
     assert record["status"] == "error"
-    assert record["tool_call_counts"] == {"search": 1}
-    assert record["error"] == {"type": "TimeoutError", "message": "timed out"}
+    assert record["tool_call_counts"] == {"search": 0}
+    assert record["error"] == {"type": "TimeoutError", "message": "timed out (call 3)"}
     assert record["diagnostics"]["termination_reason"] == "generation_request_error"
+    retrying_attempts = [
+        event["attempt"]
+        for event in progress_events
+        if event["event"] == "generation_retrying"
+    ]
+    assert retrying_attempts == [1, 2]
+    assert progress_events[-1]["event"] == "generation_failed"
 
 
 def test_oss_standard_agent_records_context_exhaustion_as_incomplete():

@@ -57,6 +57,17 @@ def main() -> None:
     parser.add_argument("--reasoning-effort", choices=["low", "medium", "high"], default="high")
     parser.add_argument("--max-iterations", type=int, default=100)
     parser.add_argument("--max-search-calls", type=int, default=100)
+    parser.add_argument(
+        "--max-generation-retries",
+        type=int,
+        default=2,
+        help=(
+            "Bounded blind retries for a generation request that fails for "
+            "reasons other than context overflow (e.g. vLLM/Harmony "
+            "server errors like vllm-project/vllm#23567), before giving up "
+            "with status=error"
+        ),
+    )
     parser.add_argument("--max-output-tokens", type=int, default=10_000)
     parser.add_argument("--generator-timeout-seconds", type=float, default=2400.0)
     parser.add_argument("--quiet-progress", action="store_true")
@@ -171,15 +182,23 @@ def main() -> None:
                 f"search {event['search_call']}: failed "
                 f"{error['type']}: {error['message']}"
             )
-        elif name == "mcp_call_dropped":
-            dropped = event["dropped_calls"]
+        elif name == "mcp_call_rejected":
+            rejected = event["rejected_calls"]
             details = "; ".join(
                 f"item {d['item_index']} {d['error_type']}: {d['error_message']}"
-                for d in dropped
+                for d in rejected
             )
             message = (
-                f"turn {event['turn']}: dropped {len(dropped)} unrecognized "
-                f"mcp_call item(s) ({details}); not fed back, matching upstream"
+                f"turn {event['turn']}: rejected {len(rejected)} unrecognized "
+                f"mcp_call item(s) ({details}); told model to retry with the "
+                f"real search tool"
+            )
+        elif name == "generation_retrying":
+            error = event["error"]
+            message = (
+                f"turn {event['turn']}: generation request failed "
+                f"{error['type']}: {error['message']} "
+                f"(retry {event['attempt']}/{event['max_generation_retries']})"
             )
         elif name == "run_finished":
             format_valid = event.get("final_answer_format_valid")
@@ -204,6 +223,7 @@ def main() -> None:
         search_client=StandardSearchClient(args.search_url),
         max_iterations=args.max_iterations,
         max_search_calls=args.max_search_calls,
+        max_generation_retries=args.max_generation_retries,
         progress_callback=progress,
     )
     progress(
@@ -213,6 +233,7 @@ def main() -> None:
             "max_output_tokens": args.max_output_tokens,
             "max_iterations": args.max_iterations,
             "max_search_calls": args.max_search_calls,
+            "max_generation_retries": args.max_generation_retries,
             "generator_timeout_seconds": args.generator_timeout_seconds,
         }
     )
@@ -250,6 +271,7 @@ def main() -> None:
         "max_output_tokens": args.max_output_tokens,
         "max_iterations": args.max_iterations,
         "max_search_calls": args.max_search_calls,
+        "max_generation_retries": args.max_generation_retries,
         "generator_timeout_seconds": args.generator_timeout_seconds,
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "upstream_reference": {

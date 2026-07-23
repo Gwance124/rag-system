@@ -257,6 +257,55 @@ def _normalize_mcp_search_call(
     return normalized, recovery
 
 
+def _reject_mcp_call(
+    item: dict[str, Any],
+    *,
+    iteration: int,
+    item_index: int,
+    error: Exception,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Build a synthetic function_call/function_call_output pair so the
+    model is told why its MCP call failed and can retry with the real
+    search tool, instead of the call being silently dropped (what upstream
+    does) or the whole run being hard-aborted (this workflow's old
+    behavior).
+    """
+
+    call_id = f"call_mcp_reject_{iteration}_{item_index}"
+    server_label = item.get("server_label")
+    name = item.get("name")
+    raw_arguments = item.get("arguments")
+    if isinstance(raw_arguments, str):
+        arguments = raw_arguments
+    elif raw_arguments is None:
+        arguments = "{}"
+    else:
+        arguments = json.dumps(raw_arguments, ensure_ascii=False)
+
+    rejected_call = {
+        "type": "function_call",
+        "id": f"fc_mcp_reject_{iteration}_{item_index}",
+        "call_id": call_id,
+        "name": name if isinstance(name, str) else "unknown",
+        "arguments": arguments,
+        "status": "completed",
+    }
+    recipient = (
+        f"{server_label}.{name}" if server_label or name else "the requested tool"
+    )
+    rejected_output = {
+        "type": "function_call_output",
+        "call_id": call_id,
+        "output": (
+            f"Error: no such tool ({recipient}). {error} The only available "
+            f"tool is '{OSS_SEARCH_TOOL_NAME}', which accepts exactly one "
+            f"argument, user_query (a search string). Call "
+            f"'{OSS_SEARCH_TOOL_NAME}' again with a valid user_query to continue."
+        ),
+    }
+    return rejected_call, rejected_output
+
+
 def _drop_oldest_turn(turns: list[list[dict[str, Any]]]) -> bool:
     """Drop the oldest non-initial turn in place.
 
@@ -277,6 +326,7 @@ class OssStandardAgentWorkflow:
     search_client: SearchClient
     max_iterations: int = 100
     max_search_calls: int = 100
+    max_generation_retries: int = 2
     progress_callback: Callable[[dict[str, Any]], None] | None = None
 
     def _progress(self, event: str, **details: Any) -> None:
@@ -317,6 +367,7 @@ class OssStandardAgentWorkflow:
             )
 
             response = None
+            generation_attempt = 0
             while True:
                 input_items = [item for turn in turns for item in turn]
                 try:
@@ -348,7 +399,25 @@ class OssStandardAgentWorkflow:
                     self._progress("context_truncated", **truncation_event)
                     continue
                 except Exception as exc:
-                    run_error = {"type": type(exc).__name__, "message": str(exc)}
+                    # vLLM/Harmony can throw transient, request-independent
+                    # server errors (e.g. vllm-project/vllm#23567,
+                    # "unexpected tokens remaining in message header"). The
+                    # upstream OSS runner just blindly retries any
+                    # exception forever; we retry the identical request a
+                    # bounded number of times instead of immediately
+                    # discarding an otherwise-healthy trajectory.
+                    generation_attempt += 1
+                    error = {"type": type(exc).__name__, "message": str(exc)}
+                    if generation_attempt <= self.max_generation_retries:
+                        self._progress(
+                            "generation_retrying",
+                            turn=iteration,
+                            attempt=generation_attempt,
+                            max_generation_retries=self.max_generation_retries,
+                            error=error,
+                        )
+                        continue
+                    run_error = error
                     status = "error"
                     termination_reason = "generation_request_error"
                     self._progress("generation_failed", turn=iteration, error=run_error)
@@ -366,7 +435,9 @@ class OssStandardAgentWorkflow:
             item_details = _output_item_details(output)
             normalized_output = []
             mcp_search_aliases = []
-            dropped_mcp_calls = []
+            rejected_call_ids: set[str] = set()
+            rejected_outputs: list[dict[str, Any]] = []
+            rejected_calls_log: list[dict[str, Any]] = []
             for item_index, item in enumerate(output):
                 if not isinstance(item, dict) or item.get("type") != "mcp_call":
                     normalized_output.append(item)
@@ -378,15 +449,20 @@ class OssStandardAgentWorkflow:
                         item_index=item_index,
                     )
                 except (ValueError, json.JSONDecodeError) as exc:
-                    # Match the upstream OSS runner: it only recognizes
-                    # type=="function_call" items and silently ignores
-                    # anything else (including mcp_call items it can't
-                    # interpret), rather than treating the whole turn as an
-                    # error. We keep the item in history unmodified so the
-                    # model can see what it tried, but it never becomes a
-                    # function call.
-                    normalized_output.append(item)
-                    dropped_mcp_calls.append(
+                    # Neither upstream's silent drop nor a hard run-ending
+                    # error: tell the model its call was invalid via a
+                    # synthetic function_call/function_call_output pair so
+                    # it can retry with the real search tool.
+                    rejected_call, rejected_output = _reject_mcp_call(
+                        item,
+                        iteration=iteration,
+                        item_index=item_index,
+                        error=exc,
+                    )
+                    normalized_output.append(rejected_call)
+                    rejected_call_ids.add(rejected_call["call_id"])
+                    rejected_outputs.append(rejected_output)
+                    rejected_calls_log.append(
                         {
                             "item_index": item_index,
                             "error_type": type(exc).__name__,
@@ -400,7 +476,9 @@ class OssStandardAgentWorkflow:
             function_calls = [
                 item
                 for item in normalized_output
-                if isinstance(item, dict) and item.get("type") == "function_call"
+                if isinstance(item, dict)
+                and item.get("type") == "function_call"
+                and item.get("call_id") not in rejected_call_ids
             ]
             message_items = [
                 item
@@ -441,18 +519,17 @@ class OssStandardAgentWorkflow:
                     }
                 )
 
-            if dropped_mcp_calls:
-                # Non-fatal, unlike the old hard-abort: the upstream runner
-                # never validates these, it just never turns them into a
-                # function call either.
+            if rejected_calls_log:
                 self._progress(
-                    "mcp_call_dropped",
+                    "mcp_call_rejected",
                     turn=iteration,
-                    dropped_calls=dropped_mcp_calls,
+                    rejected_calls=rejected_calls_log,
                     output_item_details=item_details,
                 )
 
             current_turn = list(normalized_output)
+            if rejected_outputs:
+                current_turn.extend(rejected_outputs)
 
             if not function_calls:
                 final_text = "\n".join(
@@ -472,6 +549,13 @@ class OssStandardAgentWorkflow:
                     status = "completed"
                     termination_reason = "final_answer"
                     break
+                if rejected_outputs:
+                    # Give the model a chance to see the error and retry
+                    # with a valid search call instead of treating this
+                    # turn as a dead end.
+                    turns.append(current_turn)
+                    termination_reason = "invalid_tool_call_retry"
+                    continue
                 if (
                     normalized_output
                     and isinstance(normalized_output[-1], dict)
@@ -605,6 +689,7 @@ class OssStandardAgentWorkflow:
             "diagnostics": {
                 "max_iterations": self.max_iterations,
                 "max_search_calls": self.max_search_calls,
+                "max_generation_retries": self.max_generation_retries,
                 "generation_usage": generation_usage,
                 "generation_steps": generation_steps,
                 "search_steps": search_steps,
