@@ -524,6 +524,43 @@ def test_oss_standard_agent_retries_after_rejecting_unsupported_mcp_call():
     assert "local_knowledge_base_retrieval" in rejected_output["output"]
 
 
+def test_validate_final_answer_accepts_markdown_bold_label_variants():
+    from rag_system.workflows.oss_standard_agent import _validate_final_answer
+
+    plain = (
+        "Explanation: found in the document [d3].\n"
+        "Exact Answer: blue\n"
+        "Confidence: 90%"
+    )
+    colon_inside_bold = (
+        "**Explanation:** found in the document [d3].\n"
+        "**Exact Answer:** blue\n"
+        "**Confidence:** 90%"
+    )
+    colon_outside_bold = (
+        "**Explanation**: found in the document [d3].\n"
+        "**Exact Answer**: blue\n"
+        "**Confidence**: 90%"
+    )
+
+    for text in (plain, colon_inside_bold, colon_outside_bold):
+        validation = _validate_final_answer(text)
+        assert validation["valid"] is True, (text, validation)
+
+
+def test_validate_final_answer_flags_missing_citation_only():
+    from rag_system.workflows.oss_standard_agent import _validate_final_answer
+
+    validation = _validate_final_answer(
+        "Explanation: I could not find the answer in the documents.\n"
+        "Exact Answer: unknown\n"
+        "Confidence: 10%"
+    )
+
+    assert validation["valid"] is False
+    assert validation["missing_fields"] == ["document citation"]
+
+
 def test_oss_standard_agent_marks_refusal_final_as_invalid_format():
     responses = FakeResponsesClient(
         [

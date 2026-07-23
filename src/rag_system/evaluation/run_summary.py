@@ -15,12 +15,34 @@ from typing import Any
 
 from rag_system.contracts import BenchmarkQuery
 from rag_system.evaluation.retrieval import trajectory_evidence_recall
+from rag_system.workflows.oss_standard_agent import _validate_final_answer
 
 QueryLoader = Callable[[str], BenchmarkQuery]
 
 
 def _mean(values: list[float]) -> float | None:
     return sum(values) / len(values) if values else None
+
+
+def _format_validity(
+    record: dict[str, Any], diagnostics: dict[str, Any]
+) -> bool | None:
+    """Re-validate the stored final answer with the current validator.
+
+    Records written by older runner builds carry the verdict of the validator
+    that was current at run time; the stored answer text is authoritative.
+    """
+
+    results = record.get("result")
+    if isinstance(results, list):
+        for item in reversed(results):
+            if isinstance(item, dict) and item.get("type") == "output_text":
+                output = item.get("output")
+                if isinstance(output, str) and output.strip():
+                    return _validate_final_answer(output)["valid"]
+                break
+    validation = diagnostics.get("final_answer_validation") or {}
+    return validation.get("valid")
 
 
 def summarize_run_directory(
@@ -80,8 +102,7 @@ def summarize_run_directory(
         unique_retrieved_values.append(float(len(set(retrieved))))
 
         diagnostics = record.get("diagnostics") or {}
-        validation = diagnostics.get("final_answer_validation") or {}
-        format_valid = validation.get("valid")
+        format_valid = _format_validity(record, diagnostics)
         if format_valid is True:
             format_valid_count += 1
 

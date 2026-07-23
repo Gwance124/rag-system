@@ -101,18 +101,20 @@ def _validate_final_answer(text: str) -> dict[str, Any]:
     """Check the required BrowseComp-Plus fields without changing the response."""
 
     label_prefix = r"(?im)^\s*(?:\*\*)?"
-    label_suffix = r"(?:\*\*)?\s*"
+    # Accept "Label:", "**Label:**", and "**Label**:"; the colon may sit
+    # inside or outside the closing markdown bold.
+    label_suffix = r"(?::\*\*|\*\*:|:)\s*(?:\*\*)?\s*"
     has_explanation = (
-        re.search(label_prefix + r"Explanation:" + label_suffix + r"\S", text)
+        re.search(label_prefix + r"Explanation" + label_suffix + r"\S", text)
         is not None
     )
     has_exact_answer = (
-        re.search(label_prefix + r"Exact Answer:" + label_suffix + r"\S", text)
+        re.search(label_prefix + r"Exact Answer" + label_suffix + r"\S", text)
         is not None
     )
     confidence_match = re.search(
         label_prefix
-        + r"Confidence:"
+        + r"Confidence"
         + label_suffix
         + r"(?P<value>\d{1,3}(?:\.\d+)?)\s*%",
         text,

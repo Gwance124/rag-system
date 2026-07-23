@@ -95,6 +95,39 @@ def test_summarize_run_directory_macro_averages_trajectory_recall(
     assert "question" not in json.dumps(summary)
 
 
+def test_summarize_run_directory_recomputes_format_validity_from_answer_text(
+    tmp_path: Path, queries: dict[str, BenchmarkQuery]
+) -> None:
+    # A record saved by an older runner build may carry a stale validation
+    # verdict; the summary must re-validate the stored final answer text.
+    record = {
+        "schema_version": "1.0",
+        "query_id": "q1",
+        "tool_call_counts": {"search": 2},
+        "status": "completed",
+        "retrieved_docids": ["d1"],
+        "result": [
+            {
+                "type": "output_text",
+                "tool_name": None,
+                "arguments": None,
+                "output": (
+                    "**Explanation**: stated in the document [d1].\n"
+                    "**Exact Answer**: blue\n"
+                    "**Confidence**: 90%"
+                ),
+            }
+        ],
+        "diagnostics": {"final_answer_validation": {"valid": False}},
+    }
+    (tmp_path / "run_q1.json").write_text(json.dumps(record), encoding="utf-8")
+
+    summary = summarize_run_directory(tmp_path, queries.__getitem__)
+
+    assert summary["final_answer_format_valid_count"] == 1
+    assert summary["per_query"][0]["final_answer_format_valid"] is True
+
+
 def test_summarize_run_directory_rejects_mismatched_query_ids(
     tmp_path: Path, queries: dict[str, BenchmarkQuery]
 ) -> None:
