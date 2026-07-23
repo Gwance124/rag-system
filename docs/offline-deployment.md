@@ -77,12 +77,12 @@ scp -r \
   "$HOME/rag-offline-assets/datasets" \
   "$HOME/rag-offline-assets/tokenizers" \
   "$HOME/rag-offline-assets/OFFLINE_ASSET_MANIFEST.json" \
-  "<user>@solab-p7:<p7-offline-root>/"
+  "mlee@solab-p7:/mnt/nvme2/mlee/rag-offline-assets/"
 
 scp -r \
   "$HOME/rag-offline-assets/models" \
   "$HOME/rag-offline-assets/OFFLINE_ASSET_MANIFEST.json" \
-  "<user>@solab-g3:<g3-offline-root>/"
+  "mlee@solab-g3:/mnt/nvme3n1/mlee/rag-offline-assets/"
 ```
 
 For the 56 GB model, `rsync --partial --progress -a` is safer than `scp` because
@@ -96,8 +96,8 @@ code.
 ## 3. Verify and prepare on `solab-p7`
 
 ```bash
-export RAG_OFFLINE_ROOT="<p7-offline-root>"
-export RAG_ARTIFACT_ROOT="<p7-artifact-root>"
+export RAG_OFFLINE_ROOT="/mnt/nvme2/mlee/rag-offline-assets"
+export RAG_ARTIFACT_ROOT="/mnt/nvme2/mlee/rag-system/results"
 export RAG_BROWSECOMP_QUERIES_DIR="$RAG_OFFLINE_ROOT/datasets/Tevatron--browsecomp-plus"
 export RAG_BROWSECOMP_CORPUS_DIR="$RAG_OFFLINE_ROOT/datasets/Tevatron--browsecomp-plus-corpus"
 export RAG_TOKENIZER_PATH="$RAG_OFFLINE_ROOT/tokenizers/Qwen--Qwen3.6-27B"
@@ -147,7 +147,7 @@ python -c 'import torch, vllm, flashinfer; print(torch.__version__, torch.versio
 Then verify the transferred model and launch:
 
 ```bash
-export RAG_OFFLINE_ROOT="<g3-offline-root>"
+export RAG_OFFLINE_ROOT="/mnt/nvme3n1/mlee/rag-offline-assets"
 export RAG_MODEL_PATH="$RAG_OFFLINE_ROOT/models/Qwen--Qwen3.6-27B"
 
 python scripts/verify_offline_assets.py \
@@ -191,9 +191,9 @@ curl -fsS "http://solab-g3:8000/v1/models"
 curl -fsS "http://solab-g3:8000/metrics" | head
 ```
 
-If `solab-g3` is not resolvable from `solab-p7`, use its stable lab IP in
-`RAG_GENERATOR_BASE_URL`. Restrict port 8000 to the lab network or an SSH tunnel;
-the initial server has no API key.
+If `solab-g3` is not resolvable from `solab-p7`, use its stable lab IP
+(`192.168.3.4`) in `RAG_GENERATOR_BASE_URL`. Restrict port 8000 to the lab
+network or an SSH tunnel; the initial server has no API key.
 
 Save these before the first measurement:
 

@@ -39,8 +39,8 @@ Preferred (docker, exact upstream image):
 ```bash
 tmux new -s oss20b-pinned
 docker --version   # confirm docker + NVIDIA runtime exist before pulling
-export RAG_MODEL_PATH=/path/to/openai--gpt-oss-20b
-export SXM4_GPU_INDEX=<index from nvidia-smi>
+export RAG_MODEL_PATH=/mnt/nvme3n1/labuser/.cache/huggingface/hub/models--openai--gpt-oss-20b/snapshots/6cee5e81ee83917806bbde320786a8fb61efebee
+export SXM4_GPU_INDEX=0
 docker run --rm --name oss20b-pinned \
   --gpus "\"device=${SXM4_GPU_INDEX}\"" \
   -p 8000:8000 --ipc=host \
@@ -85,12 +85,12 @@ Save both outputs next to the run directory.
 
 ```bash
 cd /mnt/nvme2/mlee/rag-system
-export RAG_PREPARED_DIR=<dir containing split.json>
-export RAG_GENERATOR_URL=http://solab-g3:8000/v1
+export RAG_PREPARED_DIR=/mnt/nvme2/mlee/rag-system/results/datasets/browsecomp-plus
+export RAG_GENERATOR_URL=http://192.168.3.4:8000/v1  # solab-g3 lab IP; hostname is unreliable
 export RAG_SEARCH_URL=http://127.0.0.1:8012
 python scripts/run_oss_standard_agent.py \
   --prepared-dir "$RAG_PREPARED_DIR" \
-  --query-id <one frozen development ID> \
+  --query-id 703 \
   --search-url "$RAG_SEARCH_URL" \
   --generator-url "$RAG_GENERATOR_URL" \
   --model openai/gpt-oss-20b \
@@ -151,8 +151,9 @@ Smoke one development query first, then the split at k=5:
 ```bash
 cd /mnt/nvme2/mlee/rag-system
 export RAG_RANKING_TREC=/mnt/nvme2/mlee/rag-system/results/retrieval/qwen3-embedding-8b/top1000.trec
-export RAG_CORPUS_REPO=<corpus snapshot dir given to serve_standard_search.py>
-export RAG_SNIPPET_TOKENIZER=<0.6B tokenizer dir given to serve_standard_search.py>
+export RAG_CORPUS_REPO=/mnt/nvme2/labuser/.cache/huggingface/datasets/datasets--Tevatron--browsecomp-plus-corpus/snapshots/b27b02bc3e45511b8b82a13e6f90ce761df726f6
+read -r TOKENIZER_REV < "/mnt/nvme2/labuser/.cache/huggingface/hub/models--Qwen--Qwen3-0.6B/refs/main"
+export RAG_SNIPPET_TOKENIZER="/mnt/nvme2/labuser/.cache/huggingface/hub/models--Qwen--Qwen3-0.6B/snapshots/$TOKENIZER_REV"
 
 python scripts/run_single_pass.py \
   --prepared-dir "$RAG_PREPARED_DIR" \
@@ -162,7 +163,7 @@ python scripts/run_single_pass.py \
   --generator-url "$RAG_GENERATOR_URL" \
   --model openai/gpt-oss-20b \
   --top-k 5 \
-  --query-id <one frozen development ID> \
+  --query-id 703 \
   --output-dir /mnt/nvme2/mlee/rag-system/results/runs/gpt-oss-20b/high/single-pass/k5-smoke
 
 python scripts/run_single_pass.py \

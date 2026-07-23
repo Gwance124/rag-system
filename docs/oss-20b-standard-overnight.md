@@ -34,10 +34,10 @@ cd /mnt/nvme2/mlee/rag-system
 find /mnt/nvme2/mlee/rag-system -type f \
   -path '*/datasets/browsecomp-plus/split.json' -print
 
-export RAG_ARTIFACT_ROOT=/actual/artifact/root
+export RAG_ARTIFACT_ROOT=/mnt/nvme2/mlee/rag-system/results
 export RAG_PREPARED_DIR="$RAG_ARTIFACT_ROOT/datasets/browsecomp-plus"
 export RAG_RUN_DIR=/mnt/nvme2/mlee/rag-system/results/runs/gpt-oss-20b/high/standard/development
-export RAG_GENERATOR_URL=http://solab-g3:8000/v1
+export RAG_GENERATOR_URL=http://192.168.3.4:8000/v1  # solab-g3 lab IP; hostname is unreliable
 export RAG_SEARCH_URL=http://127.0.0.1:8012
 
 test -f "$RAG_PREPARED_DIR/split.json"
@@ -59,8 +59,8 @@ a persistent session on g3:
 ```bash
 tmux new -s oss20b-generator
 cd /mnt/nvme2/mlee/rag-system
-export RAG_MODEL_PATH=/path/to/openai--gpt-oss-20b
-export CUDA_VISIBLE_DEVICES=<SXM4_A100_GPU_INDEX>
+export RAG_MODEL_PATH=/mnt/nvme3n1/labuser/.cache/huggingface/hub/models--openai--gpt-oss-20b/snapshots/6cee5e81ee83917806bbde320786a8fb61efebee
+export CUDA_VISIBLE_DEVICES=0
 export VLLM_MAX_MODEL_LEN=131072
 export VLLM_MAX_NUM_SEQS=1
 export VLLM_ENABLE_PREFIX_CACHING=0
@@ -77,10 +77,10 @@ Start a separate tmux session on p7:
 ```bash
 tmux new -s oss20b-development
 cd /mnt/nvme2/mlee/rag-system
-export RAG_ARTIFACT_ROOT=/actual/artifact/root
+export RAG_ARTIFACT_ROOT=/mnt/nvme2/mlee/rag-system/results
 export RAG_PREPARED_DIR="$RAG_ARTIFACT_ROOT/datasets/browsecomp-plus"
 export RAG_RUN_DIR=/mnt/nvme2/mlee/rag-system/results/runs/gpt-oss-20b/high/standard/development
-export RAG_GENERATOR_URL=http://solab-g3:8000/v1
+export RAG_GENERATOR_URL=http://192.168.3.4:8000/v1  # solab-g3 lab IP; hostname is unreliable
 export RAG_SEARCH_URL=http://127.0.0.1:8012
 mkdir -p "$RAG_RUN_DIR"
 set -o pipefail
