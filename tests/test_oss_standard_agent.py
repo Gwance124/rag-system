@@ -386,45 +386,98 @@ def test_oss_standard_agent_preserves_partial_run_after_generation_error():
 
 
 def test_oss_standard_agent_records_context_exhaustion_as_incomplete():
-    class ContextLimitedResponsesClient:
-        def __init__(self):
-            self.calls = 0
+    """Even the bare initial question (one turn) can't be dropped further."""
 
+    class AlwaysOverflowingResponsesClient:
         def complete(self, input_items, tools):
-            self.calls += 1
-            if self.calls == 2:
-                raise VllmContextLengthError(
-                    "prompt is too long",
-                    prompt_tokens=131_848,
-                    max_model_len=131_072,
-                )
-            return {
-                "id": "resp-1",
-                "status": "completed",
-                "usage": None,
-                "output": [
-                    {
-                        "type": "function_call",
-                        "name": "local_knowledge_base_retrieval",
-                        "call_id": "call-1",
-                        "arguments": json.dumps({"user_query": "first search"}),
-                    }
-                ],
-            }
+            raise VllmContextLengthError(
+                "prompt is too long",
+                prompt_tokens=131_848,
+                max_model_len=131_072,
+            )
 
     record = OssStandardAgentWorkflow(
-        ContextLimitedResponsesClient(),
+        AlwaysOverflowingResponsesClient(),
         FakeSearchClient(),
     ).run(benchmark_query())
 
     assert record["status"] == "incomplete"
-    assert record["tool_call_counts"] == {"search": 1}
+    assert record["tool_call_counts"] == {"search": 0}
     assert record["diagnostics"]["termination_reason"] == (
         "context_length_exceeded"
     )
+    assert record["diagnostics"]["context_truncation_events"] == []
     assert record["error"] == {
         "type": "VllmContextLengthError",
         "message": "prompt is too long",
         "prompt_tokens": 131_848,
         "max_model_len": 131_072,
     }
+
+
+def test_oss_standard_agent_recovers_from_context_overflow_by_dropping_oldest_turn():
+    class RecoveringResponsesClient:
+        def __init__(self):
+            self.calls = 0
+
+        def complete(self, input_items, tools):
+            self.calls += 1
+            if len(input_items) > 1:
+                raise VllmContextLengthError(
+                    "prompt is too long",
+                    prompt_tokens=200_000,
+                    max_model_len=131_072,
+                )
+            if self.calls == 1:
+                return {
+                    "id": "resp-1",
+                    "status": "completed",
+                    "usage": None,
+                    "output": [
+                        {
+                            "type": "function_call",
+                            "name": "local_knowledge_base_retrieval",
+                            "call_id": "call-1",
+                            "arguments": json.dumps({"user_query": "first search"}),
+                        }
+                    ],
+                }
+            return {
+                "id": "resp-2",
+                "status": "completed",
+                "usage": None,
+                "output": [
+                    {
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": (
+                                    "Explanation: done\n"
+                                    "Exact Answer: answer\n"
+                                    "Confidence: 90%\n"
+                                    "[d0]"
+                                ),
+                            }
+                        ],
+                    }
+                ],
+            }
+
+    record = OssStandardAgentWorkflow(
+        RecoveringResponsesClient(),
+        FakeSearchClient(),
+    ).run(benchmark_query())
+
+    assert record["status"] == "completed"
+    assert record["diagnostics"]["termination_reason"] == "final_answer"
+    assert record["tool_call_counts"] == {"search": 1}
+    assert record["diagnostics"]["context_truncation_events"] == [
+        {
+            "turn": 2,
+            "prompt_tokens": 200_000,
+            "max_model_len": 131_072,
+            "remaining_turns": 1,
+        }
+    ]

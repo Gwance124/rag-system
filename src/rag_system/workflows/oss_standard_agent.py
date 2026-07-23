@@ -257,6 +257,20 @@ def _normalize_mcp_search_call(
     return normalized, recovery
 
 
+def _drop_oldest_turn(turns: list[list[dict[str, Any]]]) -> bool:
+    """Drop the oldest non-initial turn in place.
+
+    turns[0] is the original user question and is never dropped. Returns
+    False once only that turn remains, so the caller can give up instead of
+    looping forever.
+    """
+
+    if len(turns) <= 1:
+        return False
+    del turns[1]
+    return True
+
+
 @dataclass(frozen=True)
 class OssStandardAgentWorkflow:
     responses_client: ResponsesClient
@@ -275,17 +289,20 @@ class OssStandardAgentWorkflow:
         if self.max_search_calls <= 0:
             raise ValueError("max_search_calls must be positive")
 
-        input_items: list[dict[str, Any]] = [
-            {
-                "role": "user",
-                "content": STANDARD_AGENT_PROMPT.format(question=query.question),
-            }
+        turns: list[list[dict[str, Any]]] = [
+            [
+                {
+                    "role": "user",
+                    "content": STANDARD_AGENT_PROMPT.format(question=query.question),
+                }
+            ]
         ]
         results: list[dict[str, Any]] = []
         retrieved_docids: set[str] = set()
         generation_usage = []
         generation_steps = []
         search_steps = []
+        context_truncation_events: list[dict[str, Any]] = []
         search_calls = 0
         status = "incomplete"
         termination_reason = "max_iterations"
@@ -298,24 +315,46 @@ class OssStandardAgentWorkflow:
                 turn=iteration,
                 completed_search_calls=search_calls,
             )
-            try:
-                response = self.responses_client.complete(input_items, OSS_SEARCH_TOOLS)
-            except VllmContextLengthError as exc:
-                run_error = {
-                    "type": type(exc).__name__,
-                    "message": str(exc),
-                    "prompt_tokens": exc.prompt_tokens,
-                    "max_model_len": exc.max_model_len,
-                }
-                status = "incomplete"
-                termination_reason = "context_length_exceeded"
-                self._progress("generation_failed", turn=iteration, error=run_error)
-                break
-            except Exception as exc:
-                run_error = {"type": type(exc).__name__, "message": str(exc)}
-                status = "error"
-                termination_reason = "generation_request_error"
-                self._progress("generation_failed", turn=iteration, error=run_error)
+
+            response = None
+            while True:
+                input_items = [item for turn in turns for item in turn]
+                try:
+                    response = self.responses_client.complete(
+                        input_items, OSS_SEARCH_TOOLS
+                    )
+                    break
+                except VllmContextLengthError as exc:
+                    if not _drop_oldest_turn(turns):
+                        run_error = {
+                            "type": type(exc).__name__,
+                            "message": str(exc),
+                            "prompt_tokens": exc.prompt_tokens,
+                            "max_model_len": exc.max_model_len,
+                        }
+                        status = "incomplete"
+                        termination_reason = "context_length_exceeded"
+                        self._progress(
+                            "generation_failed", turn=iteration, error=run_error
+                        )
+                        break
+                    truncation_event = {
+                        "turn": iteration,
+                        "prompt_tokens": exc.prompt_tokens,
+                        "max_model_len": exc.max_model_len,
+                        "remaining_turns": len(turns),
+                    }
+                    context_truncation_events.append(truncation_event)
+                    self._progress("context_truncated", **truncation_event)
+                    continue
+                except Exception as exc:
+                    run_error = {"type": type(exc).__name__, "message": str(exc)}
+                    status = "error"
+                    termination_reason = "generation_request_error"
+                    self._progress("generation_failed", turn=iteration, error=run_error)
+                    break
+
+            if response is None:
                 break
 
             output = response["output"]
@@ -409,7 +448,7 @@ class OssStandardAgentWorkflow:
                 )
                 break
 
-            input_items.extend(normalized_output)
+            current_turn = list(normalized_output)
 
             if not function_calls:
                 final_text = "\n".join(
@@ -425,6 +464,7 @@ class OssStandardAgentWorkflow:
                             "output": final_text,
                         }
                     )
+                    turns.append(current_turn)
                     status = "completed"
                     termination_reason = "final_answer"
                     break
@@ -435,9 +475,11 @@ class OssStandardAgentWorkflow:
                 ):
                     # Match the upstream OSS runner: do not feed a dangling
                     # reasoning-only item back as completed conversation state.
-                    input_items.pop()
+                    current_turn.pop()
+                    turns.append(current_turn)
                     termination_reason = "reasoning_only_retry"
                     continue
+                turns.append(current_turn)
                 termination_reason = "empty_or_unusable_response"
                 break
 
@@ -537,7 +579,8 @@ class OssStandardAgentWorkflow:
                     }
                 )
 
-            input_items.extend(function_outputs)
+            current_turn.extend(function_outputs)
+            turns.append(current_turn)
             if run_error is not None or search_calls >= self.max_search_calls:
                 break
 
@@ -554,6 +597,7 @@ class OssStandardAgentWorkflow:
                 "generation_usage": generation_usage,
                 "generation_steps": generation_steps,
                 "search_steps": search_steps,
+                "context_truncation_events": context_truncation_events,
                 "termination_reason": termination_reason,
                 "final_answer_validation": final_answer_validation,
             },

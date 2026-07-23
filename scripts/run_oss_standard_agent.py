@@ -139,6 +139,13 @@ def main() -> None:
                 f"turn {event['turn']}: generation failed "
                 f"{error['type']}: {error['message']}"
             )
+        elif name == "context_truncated":
+            message = (
+                f"turn {event['turn']}: context overflow "
+                f"(prompt_tokens={event['prompt_tokens']} > "
+                f"max_model_len={event['max_model_len']}); dropped oldest turn, "
+                f"{event['remaining_turns']} turn(s) remain, retrying"
+            )
         elif name == "search_started":
             message = f"search {event['search_call']}: {event['query']}"
         elif name == "search_completed":
