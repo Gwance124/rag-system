@@ -353,6 +353,7 @@ class OssStandardAgentWorkflow:
         generation_steps = []
         search_steps = []
         context_truncation_events: list[dict[str, Any]] = []
+        invalid_function_calls: list[dict[str, Any]] = []
         search_calls = 0
         status = "incomplete"
         termination_reason = "max_iterations"
@@ -586,10 +587,40 @@ class OssStandardAgentWorkflow:
                 try:
                     call_id, search_query = self._parse_search_call(function_call)
                 except Exception as exc:
-                    run_error = {"type": type(exc).__name__, "message": str(exc)}
-                    status = "error"
-                    termination_reason = "invalid_tool_call"
-                    break
+                    # Match upstream oss_client.py: any tool-execution failure
+                    # is fed back to the model as the tool output and the loop
+                    # continues. Only a call without a routable call_id ends
+                    # the run, because its error cannot reach the model.
+                    feedback_call_id = (
+                        function_call.get("call_id")
+                        if isinstance(function_call, dict)
+                        else None
+                    )
+                    if not isinstance(feedback_call_id, str) or not feedback_call_id:
+                        run_error = {
+                            "type": type(exc).__name__,
+                            "message": str(exc),
+                        }
+                        status = "error"
+                        termination_reason = "invalid_tool_call"
+                        break
+                    invalid_call = {
+                        "turn": iteration,
+                        "error_type": type(exc).__name__,
+                        "error_message": str(exc),
+                    }
+                    invalid_function_calls.append(invalid_call)
+                    self._progress("invalid_function_call", **invalid_call)
+                    function_outputs.append(
+                        {
+                            "type": "function_call_output",
+                            "call_id": feedback_call_id,
+                            "output": (
+                                f"Error executing {OSS_SEARCH_TOOL_NAME}: {exc}"
+                            ),
+                        }
+                    )
+                    continue
                 self._progress(
                     "search_started",
                     search_call=search_calls + 1,
@@ -694,6 +725,7 @@ class OssStandardAgentWorkflow:
                 "generation_steps": generation_steps,
                 "search_steps": search_steps,
                 "context_truncation_events": context_truncation_events,
+                "invalid_function_calls": invalid_function_calls,
                 "termination_reason": termination_reason,
                 "final_answer_validation": final_answer_validation,
             },
@@ -718,8 +750,14 @@ class OssStandardAgentWorkflow:
             arguments = raw_arguments
         else:
             raise ValueError("search function arguments are invalid")
-        if set(arguments) != {"user_query"}:
-            raise ValueError("search function requires exactly user_query")
+        if not isinstance(arguments, dict) or "user_query" not in arguments:
+            # Match upstream oss_client.py: arguments["user_query"] tolerates
+            # extra keys; only a missing user_query is an error.
+            keys = sorted(arguments) if isinstance(arguments, dict) else []
+            raise ValueError(
+                "search function requires a user_query argument; got keys "
+                f"{keys}"
+            )
         search_query = arguments["user_query"]
         if not isinstance(search_query, str) or not search_query.strip():
             raise ValueError("search query must be a non-empty string")

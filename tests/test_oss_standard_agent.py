@@ -150,6 +150,151 @@ def test_oss_standard_agent_runs_search_then_returns_answer():
     ]
 
 
+def _final_answer_response(response_id: str = "resp-final"):
+    return {
+        "id": response_id,
+        "status": "completed",
+        "usage": {"input_tokens": 20, "output_tokens": 8},
+        "output": [
+            {
+                "type": "message",
+                "content": [
+                    {
+                        "type": "output_text",
+                        "text": (
+                            "Explanation: result [d0].\n"
+                            "Exact Answer: answer\nConfidence: 90%"
+                        ),
+                    }
+                ],
+            }
+        ],
+    }
+
+
+def test_oss_standard_agent_tolerates_extra_search_argument_keys():
+    # Upstream oss_client.py reads arguments["user_query"] and ignores any
+    # other keys; pinned v0.10.1 servers do not enforce strict schemas.
+    responses = FakeResponsesClient(
+        [
+            {
+                "id": "resp-1",
+                "status": "completed",
+                "usage": {"input_tokens": 10, "output_tokens": 5},
+                "output": [
+                    {
+                        "type": "function_call",
+                        "name": "local_knowledge_base_retrieval",
+                        "call_id": "call-1",
+                        "arguments": json.dumps(
+                            {"user_query": "focused search", "topn": 5}
+                        ),
+                    },
+                ],
+            },
+            _final_answer_response(),
+        ]
+    )
+    search = FakeSearchClient()
+
+    record = OssStandardAgentWorkflow(responses, search).run(benchmark_query())
+
+    assert record["status"] == "completed"
+    assert record["tool_call_counts"] == {"search": 1}
+    assert search.queries == ["focused search"]
+
+
+def test_oss_standard_agent_feeds_back_invalid_search_arguments():
+    # Upstream feeds "Error executing ..." back as the tool output and keeps
+    # looping; a wrong argument spelling must not end the trajectory.
+    progress_events = []
+    responses = FakeResponsesClient(
+        [
+            {
+                "id": "resp-1",
+                "status": "completed",
+                "usage": {"input_tokens": 10, "output_tokens": 5},
+                "output": [
+                    {
+                        "type": "function_call",
+                        "name": "local_knowledge_base_retrieval",
+                        "call_id": "call-1",
+                        "arguments": json.dumps({"query": "wrong spelling"}),
+                    },
+                ],
+            },
+            {
+                "id": "resp-2",
+                "status": "completed",
+                "usage": {"input_tokens": 15, "output_tokens": 5},
+                "output": [
+                    {
+                        "type": "function_call",
+                        "name": "local_knowledge_base_retrieval",
+                        "call_id": "call-2",
+                        "arguments": json.dumps({"user_query": "correct search"}),
+                    },
+                ],
+            },
+            _final_answer_response(),
+        ]
+    )
+    search = FakeSearchClient()
+
+    record = OssStandardAgentWorkflow(
+        responses,
+        search,
+        progress_callback=progress_events.append,
+    ).run(benchmark_query())
+
+    assert record["status"] == "completed"
+    assert record["tool_call_counts"] == {"search": 1}
+    assert search.queries == ["correct search"]
+    assert record["diagnostics"]["termination_reason"] == "final_answer"
+
+    invalid_calls = record["diagnostics"]["invalid_function_calls"]
+    assert len(invalid_calls) == 1
+    assert invalid_calls[0]["turn"] == 1
+    assert "user_query" in invalid_calls[0]["error_message"]
+
+    second_input = responses.requests[1][0]
+    assert second_input[-1]["type"] == "function_call_output"
+    assert second_input[-1]["call_id"] == "call-1"
+    assert second_input[-1]["output"].startswith(
+        "Error executing local_knowledge_base_retrieval:"
+    )
+    assert "invalid_function_call" in [
+        event["event"] for event in progress_events
+    ]
+
+
+def test_oss_standard_agent_still_errors_when_feedback_is_impossible():
+    # Without a call_id there is no way to route the error back to the model.
+    responses = FakeResponsesClient(
+        [
+            {
+                "id": "resp-1",
+                "status": "completed",
+                "usage": {"input_tokens": 10, "output_tokens": 5},
+                "output": [
+                    {
+                        "type": "function_call",
+                        "name": "local_knowledge_base_retrieval",
+                        "arguments": json.dumps({"user_query": "no call id"}),
+                    },
+                ],
+            },
+        ]
+    )
+    search = FakeSearchClient()
+
+    record = OssStandardAgentWorkflow(responses, search).run(benchmark_query())
+
+    assert record["status"] == "error"
+    assert record["diagnostics"]["termination_reason"] == "invalid_tool_call"
+    assert search.queries == []
+
+
 def test_oss_standard_agent_normalizes_known_mcp_search_alias():
     progress_events = []
     responses = FakeResponsesClient(
