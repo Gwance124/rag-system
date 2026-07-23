@@ -108,6 +108,166 @@ def test_oss_standard_agent_runs_search_then_returns_answer():
     ]
 
 
+def test_oss_standard_agent_normalizes_known_mcp_search_alias():
+    progress_events = []
+    responses = FakeResponsesClient(
+        [
+            {
+                "id": "resp-1",
+                "status": "completed",
+                "usage": None,
+                "output": [
+                    {
+                        "type": "function_call",
+                        "name": "local_knowledge_base_retrieval",
+                        "call_id": "call-1",
+                        "arguments": json.dumps({"user_query": "first search"}),
+                    }
+                ],
+            },
+            {
+                "id": "resp-2",
+                "status": "completed",
+                "usage": None,
+                "output": [
+                    {
+                        "type": "reasoning",
+                        "content": [
+                            {"type": "reasoning_text", "text": "Search again."}
+                        ],
+                    },
+                    {
+                        "type": "mcp_call",
+                        "id": "mcp-2",
+                        "status": "completed",
+                        "server_label": "browser",
+                        "name": "search",
+                        "arguments": json.dumps(
+                            {
+                                "query": "second search",
+                                "topn": 10,
+                                "source": "news",
+                            }
+                        ),
+                    },
+                ],
+            },
+            {
+                "id": "resp-3",
+                "status": "completed",
+                "usage": None,
+                "output": [
+                    {
+                        "type": "message",
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": "Explanation: result [d0].\nExact Answer: answer",
+                            }
+                        ],
+                    }
+                ],
+            },
+        ]
+    )
+    search = FakeSearchClient()
+
+    record = OssStandardAgentWorkflow(
+        responses,
+        search,
+        progress_callback=progress_events.append,
+    ).run(benchmark_query())
+
+    assert record["status"] == "completed"
+    assert record["tool_call_counts"] == {"search": 2}
+    assert record["diagnostics"]["termination_reason"] == "final_answer"
+    assert search.queries == ["first search", "second search"]
+
+    third_input = responses.requests[2][0]
+    assert not any(item.get("type") == "mcp_call" for item in third_input)
+    assert third_input[-2] == {
+        "type": "function_call",
+        "id": "fc_mcp_compat_2_1",
+        "call_id": "call_mcp_compat_2_1",
+        "name": "local_knowledge_base_retrieval",
+        "arguments": '{"user_query":"second search"}',
+        "status": "completed",
+    }
+    assert third_input[-1]["type"] == "function_call_output"
+    assert third_input[-1]["call_id"] == "call_mcp_compat_2_1"
+
+    second_step = record["diagnostics"]["generation_steps"][1]
+    assert second_step["output_item_types"] == ["reasoning", "mcp_call"]
+    assert second_step["output_item_details"][1] == {
+        "type": "mcp_call",
+        "id": "mcp-2",
+        "status": "completed",
+        "name": "search",
+        "server_label": "browser",
+        "argument_keys": ["query", "source", "topn"],
+        "has_output": False,
+        "has_error": False,
+    }
+    assert second_step["mcp_search_aliases"] == [
+        {
+            "item_index": 1,
+            "server_label": "browser",
+            "name": "search",
+            "normalized_name": "local_knowledge_base_retrieval",
+            "call_id": "call_mcp_compat_2_1",
+        }
+    ]
+    generation_event = [
+        event
+        for event in progress_events
+        if event["event"] == "generation_completed" and event["turn"] == 2
+    ][0]
+    assert generation_event["tool_call_count"] == 1
+    assert generation_event["mcp_search_aliases"]
+
+
+def test_oss_standard_agent_rejects_non_search_mcp_call_explicitly():
+    progress_events = []
+    responses = FakeResponsesClient(
+        [
+            {
+                "id": "resp-1",
+                "status": "completed",
+                "usage": None,
+                "output": [
+                    {
+                        "type": "mcp_call",
+                        "id": "mcp-1",
+                        "status": "completed",
+                        "server_label": "browser",
+                        "name": "open",
+                        "arguments": json.dumps({"url": "cursor:1"}),
+                    }
+                ],
+            }
+        ]
+    )
+
+    record = OssStandardAgentWorkflow(
+        responses,
+        FakeSearchClient(),
+        progress_callback=progress_events.append,
+    ).run(benchmark_query())
+
+    assert record["status"] == "error"
+    assert record["tool_call_counts"] == {"search": 0}
+    assert record["diagnostics"]["termination_reason"] == (
+        "unsupported_mcp_tool_call"
+    )
+    assert record["error"]["type"] == "UnsupportedMcpToolCallError"
+    assert "browser.open" in record["error"]["message"]
+    assert [event["event"] for event in progress_events] == [
+        "generation_started",
+        "generation_completed",
+        "tool_call_rejected",
+    ]
+
+
 def test_oss_standard_agent_preserves_partial_run_after_generation_error():
     class FailingResponsesClient:
         def __init__(self):

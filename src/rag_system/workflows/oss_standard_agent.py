@@ -37,6 +37,13 @@ OSS_SEARCH_TOOLS = [
     }
 ]
 
+OSS_SEARCH_TOOL_NAME = "local_knowledge_base_retrieval"
+_MCP_SEARCH_NAME_ALIASES = frozenset({"search", OSS_SEARCH_TOOL_NAME})
+
+
+class UnsupportedMcpToolCallError(ValueError):
+    """Raised when GPT-OSS requests a tool outside the Standard scaffold."""
+
 
 class ResponsesClient(Protocol):
     def complete(
@@ -78,6 +85,121 @@ def _message_text(item: dict[str, Any]) -> str:
     return "\n".join(
         _text_parts(item.get("content"), {"output_text", "text"})
     ).strip()
+
+
+def _output_item_details(output: list[Any]) -> list[dict[str, Any]]:
+    """Return useful protocol metadata without copying private argument values."""
+
+    details = []
+    for item in output:
+        if not isinstance(item, dict):
+            details.append({"type": type(item).__name__, "valid_object": False})
+            continue
+        detail: dict[str, Any] = {"type": item.get("type")}
+        for key in ("id", "status", "name", "server_label"):
+            value = item.get(key)
+            if isinstance(value, str):
+                detail[key] = value
+        if item.get("type") == "mcp_call":
+            raw_arguments = item.get("arguments")
+            try:
+                arguments = (
+                    json.loads(raw_arguments)
+                    if isinstance(raw_arguments, str)
+                    else raw_arguments
+                )
+            except json.JSONDecodeError:
+                arguments = None
+            detail["argument_keys"] = (
+                sorted(str(key) for key in arguments)
+                if isinstance(arguments, dict)
+                else None
+            )
+            detail["has_output"] = item.get("output") is not None
+            detail["has_error"] = item.get("error") is not None
+        details.append(detail)
+    return details
+
+
+def _normalize_mcp_search_call(
+    item: dict[str, Any],
+    *,
+    iteration: int,
+    item_index: int,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Map known GPT-OSS search recipients to the one local function tool.
+
+    vLLM emits every Harmony recipient that it does not recognize as a declared
+    function as ``mcp_call``.  GPT-OSS may spell the same search intent as
+    ``browser.search`` or bare ``search`` on a later turn.  Those aliases still
+    execute only our local Standard search service; no MCP or native browser is
+    enabled.
+    """
+
+    server_label = item.get("server_label")
+    name = item.get("name")
+    if not isinstance(server_label, str) or not isinstance(name, str):
+        raise UnsupportedMcpToolCallError(
+            "assistant returned an MCP call without a server_label and name"
+        )
+    if name not in _MCP_SEARCH_NAME_ALIASES:
+        raise UnsupportedMcpToolCallError(
+            "Standard OSS workflow rejected MCP recipient "
+            f"{server_label}.{name}; only local search aliases are permitted"
+        )
+    if item.get("output") is not None or item.get("error") is not None:
+        raise UnsupportedMcpToolCallError(
+            "Standard OSS workflow cannot replay a server-executed MCP call"
+        )
+    if item.get("status") not in (None, "completed"):
+        raise ValueError("search MCP call is incomplete")
+
+    raw_arguments = item.get("arguments")
+    if isinstance(raw_arguments, str):
+        arguments = json.loads(raw_arguments)
+    elif isinstance(raw_arguments, dict):
+        arguments = raw_arguments
+    else:
+        raise ValueError("search MCP arguments are invalid")
+    argument_keys = set(arguments)
+    if argument_keys == {"user_query"}:
+        search_query = arguments["user_query"]
+    elif "query" in arguments and argument_keys.issubset(
+        {"query", "topn", "source"}
+    ):
+        # GPT-OSS's native browser spelling may include topn/source.  The
+        # Standard scaffold deliberately ignores both and keeps fixed top-5
+        # retrieval against the local service.
+        search_query = arguments["query"]
+    else:
+        raise ValueError(
+            "search MCP call requires user_query, or query with only "
+            "optional topn/source"
+        )
+    if not isinstance(search_query, str) or not search_query.strip():
+        raise ValueError("search MCP query must be a non-empty string")
+
+    call_id = f"call_mcp_compat_{iteration}_{item_index}"
+    normalized = {
+        "type": "function_call",
+        "id": f"fc_mcp_compat_{iteration}_{item_index}",
+        "call_id": call_id,
+        "name": OSS_SEARCH_TOOL_NAME,
+        "arguments": json.dumps(
+            {"user_query": search_query.strip()},
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ),
+        "status": "completed",
+    }
+    recovery = {
+        "item_index": item_index,
+        "server_label": server_label,
+        "name": name,
+        "normalized_name": OSS_SEARCH_TOOL_NAME,
+        "call_id": call_id,
+    }
+    return normalized, recovery
 
 
 @dataclass(frozen=True)
@@ -135,14 +257,34 @@ class OssStandardAgentWorkflow:
             item_types = [
                 item.get("type") for item in output if isinstance(item, dict)
             ]
+            item_details = _output_item_details(output)
+            normalized_output = []
+            mcp_search_aliases = []
+            normalization_error: Exception | None = None
+            for item_index, item in enumerate(output):
+                if not isinstance(item, dict) or item.get("type") != "mcp_call":
+                    normalized_output.append(item)
+                    continue
+                try:
+                    normalized_item, recovery = _normalize_mcp_search_call(
+                        item,
+                        iteration=iteration,
+                        item_index=item_index,
+                    )
+                except (ValueError, json.JSONDecodeError) as exc:
+                    normalization_error = exc
+                    break
+                normalized_output.append(normalized_item)
+                mcp_search_aliases.append(recovery)
+
             function_calls = [
                 item
-                for item in output
+                for item in normalized_output
                 if isinstance(item, dict) and item.get("type") == "function_call"
             ]
             message_items = [
                 item
-                for item in output
+                for item in normalized_output
                 if isinstance(item, dict) and item.get("type") == "message"
             ]
             self._progress(
@@ -151,7 +293,9 @@ class OssStandardAgentWorkflow:
                 response_status=response.get("status"),
                 usage=usage,
                 output_item_types=item_types,
+                output_item_details=item_details,
                 tool_call_count=len(function_calls),
+                mcp_search_aliases=mcp_search_aliases,
             )
             generation_steps.append(
                 {
@@ -159,10 +303,11 @@ class OssStandardAgentWorkflow:
                     "response_id": response.get("id"),
                     "response_status": response.get("status"),
                     "output_item_types": item_types,
+                    "output_item_details": item_details,
+                    "mcp_search_aliases": mcp_search_aliases,
                     "usage": usage,
                 }
             )
-            input_items.extend(output)
 
             for item in output:
                 if not isinstance(item, dict) or item.get("type") != "reasoning":
@@ -175,6 +320,29 @@ class OssStandardAgentWorkflow:
                         "output": _reasoning_output(item),
                     }
                 )
+
+            if normalization_error is not None:
+                run_error = {
+                    "type": type(normalization_error).__name__,
+                    "message": str(normalization_error),
+                }
+                status = "error"
+                termination_reason = (
+                    "unsupported_mcp_tool_call"
+                    if isinstance(
+                        normalization_error, UnsupportedMcpToolCallError
+                    )
+                    else "invalid_tool_call"
+                )
+                self._progress(
+                    "tool_call_rejected",
+                    turn=iteration,
+                    error=run_error,
+                    output_item_details=item_details,
+                )
+                break
+
+            input_items.extend(normalized_output)
 
             if not function_calls:
                 final_text = "\n".join(
@@ -192,7 +360,11 @@ class OssStandardAgentWorkflow:
                     status = "completed"
                     termination_reason = "final_answer"
                     break
-                if output and item_types[-1] == "reasoning":
+                if (
+                    normalized_output
+                    and isinstance(normalized_output[-1], dict)
+                    and normalized_output[-1].get("type") == "reasoning"
+                ):
                     # Match the upstream OSS runner: do not feed a dangling
                     # reasoning-only item back as completed conversation state.
                     input_items.pop()
@@ -323,7 +495,7 @@ class OssStandardAgentWorkflow:
     def _parse_search_call(function_call: Any) -> tuple[str, str]:
         if not isinstance(function_call, dict):
             raise ValueError("assistant returned an invalid function call")
-        if function_call.get("name") != "local_knowledge_base_retrieval":
+        if function_call.get("name") != OSS_SEARCH_TOOL_NAME:
             raise ValueError("Standard OSS workflow only permits the search tool")
         call_id = function_call.get("call_id")
         if not isinstance(call_id, str) or not call_id:

@@ -66,4 +66,5 @@ class VllmResponsesClient:
             "usage": result.get("usage"),
             "status": result.get("status"),
             "error": result.get("error"),
+            "incomplete_details": result.get("incomplete_details"),
         }

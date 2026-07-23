@@ -19,6 +19,7 @@ class FakeResponse:
                 "status": "completed",
                 "output": [{"type": "message", "content": []}],
                 "usage": {"input_tokens": 10, "output_tokens": 2},
+                "incomplete_details": None,
             }
         ).encode()
 
@@ -58,3 +59,4 @@ def test_vllm_responses_sends_high_effort_tool_request(monkeypatch):
     assert result["id"] == "resp-1"
     assert result["status"] == "completed"
     assert result["usage"] == {"input_tokens": 10, "output_tokens": 2}
+    assert result["incomplete_details"] is None

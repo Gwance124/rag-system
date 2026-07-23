@@ -111,6 +111,14 @@ def main() -> None:
             )
         elif name == "generation_completed":
             usage = event.get("usage") or {}
+            aliases = event.get("mcp_search_aliases") or []
+            alias_summary = ""
+            if aliases:
+                recipients = [
+                    f"{item['server_label']}.{item['name']}"
+                    for item in aliases
+                ]
+                alias_summary = f" normalized_mcp_search={recipients}"
             message = (
                 f"turn {event['turn']}: generation finished "
                 f"status={event.get('response_status')} "
@@ -118,6 +126,7 @@ def main() -> None:
                 f"output_tokens={usage.get('output_tokens', 'n/a')} "
                 f"items={event['output_item_types']} "
                 f"tool_calls={event['tool_call_count']}"
+                f"{alias_summary}"
             )
         elif name == "generation_failed":
             error = event["error"]
@@ -148,6 +157,12 @@ def main() -> None:
             error = event["error"]
             message = (
                 f"search {event['search_call']}: failed "
+                f"{error['type']}: {error['message']}"
+            )
+        elif name == "tool_call_rejected":
+            error = event["error"]
+            message = (
+                f"turn {event['turn']}: tool call rejected "
                 f"{error['type']}: {error['message']}"
             )
         elif name == "run_finished":
