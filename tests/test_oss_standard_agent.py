@@ -652,6 +652,34 @@ def test_validate_final_answer_flags_missing_citation_only():
     assert validation["missing_fields"] == ["document citation"]
 
 
+def test_validate_final_answer_accepts_full_width_bracket_citations():
+    """gpt-oss sometimes cites with full-width brackets (U+3010/U+3011,
+
+    e.g. 【32059】) instead of ASCII "[docid]" — observed live on query 703's
+    final answer, which was otherwise well-formed but got marked invalid
+    purely because the citation regex only recognized ASCII brackets.
+    """
+    from rag_system.workflows.oss_standard_agent import _validate_final_answer
+
+    text = (
+        "**Explanation:**  \n"
+        "The clues point to South Korean hotel-chain president "
+        "**Lee Boo-jin**.  \n"
+        "- Her name was changed at age three【32059】.  \n"
+        "- She dropped charges in 2016【13344】.  \n"
+        "- Her marriage ended in divorce in 2020【31619】.  \n"
+        "- Her brother was sentenced in 2021【53237】.  \n\n"
+        "**Exact Answer:** Lee Boo-jin  \n"
+        "**Confidence:** 88 %"
+    )
+
+    validation = _validate_final_answer(text)
+
+    assert validation["valid"] is True
+    assert validation["citation_count"] == 4
+    assert validation["missing_fields"] == []
+
+
 def test_oss_standard_agent_marks_refusal_final_as_invalid_format():
     responses = FakeResponsesClient(
         [

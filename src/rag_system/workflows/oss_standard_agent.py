@@ -143,7 +143,13 @@ def _validate_final_answer(text: str) -> dict[str, Any]:
     if confidence_match is not None:
         confidence = float(confidence_match.group("value"))
         has_confidence = 0.0 <= confidence <= 100.0
-    citation_count = len(re.findall(r"\[[^\[\]\n]+\]", text))
+    # gpt-oss sometimes cites with full-width brackets (U+3010/U+3011,
+    # "black lenticular bracket": 【docid】) instead of ASCII "[docid]" —
+    # observed live on query 703. Count both styles; do not cross-match a
+    # mismatched pair (an ASCII open with a full-width close, or vice versa).
+    citation_count = len(
+        re.findall(r"\[[^\[\]\n]+\]|【[^【】\n]+】", text)
+    )
 
     missing_fields = []
     if not has_explanation:
