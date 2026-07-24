@@ -50,6 +50,26 @@ OSS_SEARCH_TOOLS = [
 OSS_SEARCH_TOOL_NAME = "local_knowledge_base_retrieval"
 _MCP_SEARCH_NAME_ALIASES = frozenset({"search", OSS_SEARCH_TOOL_NAME})
 
+# vllm-project/vllm#32587: vLLM's gpt-oss/Harmony tool-call parser
+# intermittently leaks the raw `<|channel|>commentary` special token onto
+# the end of the tool name it reports (e.g. "local_knowledge_base_retrieval"
+# becomes "local_knowledge_base_retrievalcommentary"), with no separator.
+# Open, unowned upstream as of 2026-07-23; `skip_special_tokens` does not
+# help because the token leaks during generation, not post-processing. Strip
+# a known channel-name suffix before alias-checking so a well-formed call on
+# an unlucky turn is recovered immediately instead of being rejected and
+# costing a full wasted generation round-trip.
+_HARMONY_CHANNEL_NAME_SUFFIXES = ("commentary", "analysis", "final")
+
+
+def _strip_leaked_channel_suffix(name: str) -> str:
+    for suffix in _HARMONY_CHANNEL_NAME_SUFFIXES:
+        if name != suffix and name.endswith(suffix):
+            candidate = name[: -len(suffix)]
+            if candidate in _MCP_SEARCH_NAME_ALIASES:
+                return candidate
+    return name
+
 
 class UnsupportedMcpToolCallError(ValueError):
     """Raised when GPT-OSS requests a tool outside the Standard scaffold."""
@@ -199,6 +219,7 @@ def _normalize_mcp_search_call(
         raise UnsupportedMcpToolCallError(
             "assistant returned an MCP call without a server_label and name"
         )
+    name = _strip_leaked_channel_suffix(name)
     if name not in _MCP_SEARCH_NAME_ALIASES:
         raise UnsupportedMcpToolCallError(
             "Standard OSS workflow rejected MCP recipient "
@@ -802,7 +823,13 @@ class OssStandardAgentWorkflow:
     def _parse_search_call(function_call: Any) -> tuple[str, str]:
         if not isinstance(function_call, dict):
             raise ValueError("assistant returned an invalid function call")
-        if function_call.get("name") != OSS_SEARCH_TOOL_NAME:
+        raw_name = function_call.get("name")
+        name = (
+            _strip_leaked_channel_suffix(raw_name)
+            if isinstance(raw_name, str)
+            else raw_name
+        )
+        if name != OSS_SEARCH_TOOL_NAME:
             raise ValueError("Standard OSS workflow only permits the search tool")
         call_id = function_call.get("call_id")
         if not isinstance(call_id, str) or not call_id:

@@ -413,6 +413,97 @@ def test_oss_standard_agent_normalizes_known_mcp_search_alias():
     assert generation_event["mcp_search_aliases"]
 
 
+def test_oss_standard_agent_recovers_mcp_call_with_leaked_channel_suffix():
+    """vllm-project/vllm#32587: vLLM intermittently leaks the raw
+
+    ``<|channel|>commentary`` token onto the end of the tool name it
+    reports, e.g. "local_knowledge_base_retrievalcommentary" instead of
+    "local_knowledge_base_retrieval" (observed live on query 703). This must
+    be recovered on the same turn rather than rejected as an unrecognized
+    recipient.
+    """
+
+    responses = FakeResponsesClient(
+        [
+            {
+                "id": "resp-1",
+                "status": "completed",
+                "usage": None,
+                "output": [
+                    {
+                        "type": "mcp_call",
+                        "id": "mcp-1",
+                        "status": "completed",
+                        "server_label": "functions",
+                        "name": "local_knowledge_base_retrievalcommentary",
+                        "arguments": json.dumps({"user_query": "leaked suffix search"}),
+                    },
+                ],
+            },
+            _final_answer_response("resp-2"),
+        ]
+    )
+    search = FakeSearchClient()
+
+    record = OssStandardAgentWorkflow(
+        responses,
+        search,
+    ).run(benchmark_query())
+
+    assert record["status"] == "completed"
+    assert record["tool_call_counts"] == {"search": 1}
+    assert search.queries == ["leaked suffix search"]
+    generation_steps = record["diagnostics"]["generation_steps"]
+    assert generation_steps[0]["mcp_search_aliases"] == [
+        {
+            "item_index": 0,
+            "server_label": "functions",
+            # The leaked "...commentary" suffix is stripped before this
+            # record is built, so it already shows the recovered name.
+            "name": "local_knowledge_base_retrieval",
+            "normalized_name": "local_knowledge_base_retrieval",
+            "call_id": "call_mcp_compat_1_0",
+        }
+    ]
+
+
+def test_oss_standard_agent_recovers_function_call_with_leaked_channel_suffix():
+    """Same vllm-project/vllm#32587 leak, but on a direct function_call item
+
+    (observed live on query 703, turn 40) rather than an mcp_call.
+    """
+
+    responses = FakeResponsesClient(
+        [
+            {
+                "id": "resp-1",
+                "status": "completed",
+                "usage": None,
+                "output": [
+                    {
+                        "type": "function_call",
+                        "name": "local_knowledge_base_retrievalcommentary",
+                        "call_id": "call-1",
+                        "arguments": json.dumps({"user_query": "leaked suffix search"}),
+                    }
+                ],
+            },
+            _final_answer_response("resp-2"),
+        ]
+    )
+    search = FakeSearchClient()
+
+    record = OssStandardAgentWorkflow(
+        responses,
+        search,
+    ).run(benchmark_query())
+
+    assert record["status"] == "completed"
+    assert record["tool_call_counts"] == {"search": 1}
+    assert search.queries == ["leaked suffix search"]
+    assert record["diagnostics"]["invalid_function_calls"] == []
+
+
 def test_oss_standard_agent_retries_after_rejecting_unsupported_mcp_call():
     """Unlike upstream's silent drop (search_agent/oss_client.py only
     recognizes type=="function_call" items and never validates an mcp_call

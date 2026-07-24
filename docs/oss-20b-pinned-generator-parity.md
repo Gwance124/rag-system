@@ -25,6 +25,20 @@ Date: 2026-07-23
 > failure with vLLM's default (non-strict-disabled) parser construction.
 > Apply `patches/vllm-0.19.1-harmony-strict-false.patch` to the installed
 > vLLM before running Step 3; see the preflight below.
+>
+> **Second correction (2026-07-23, same evening):** a separate, unrelated
+> vLLM bug — [vllm-project/vllm#32587](https://github.com/vllm-project/vllm/issues/32587),
+> open and unowned upstream — intermittently leaks the raw
+> `<|channel|>commentary` special token onto the end of the tool name gpt-oss
+> reports (e.g. `local_knowledge_base_retrievalcommentary` instead of
+> `local_knowledge_base_retrieval`), on an otherwise well-formed call.
+> Observed live 4+ times in one query (703). `skip_special_tokens` does not
+> help (the leak happens during generation, not post-processing), so this is
+> handled client-side: `_strip_leaked_channel_suffix` in
+> `oss_standard_agent.py` strips a trailing `commentary`/`analysis`/`final`
+> before alias-checking, recovering the call on the same turn instead of
+> rejecting it and costing a wasted generation round-trip. No server-side
+> action needed for this one — it's already in the workflow code.
 
 ## Why this run exists
 
