@@ -1,0 +1,18 @@
+diff --git a/vllm/entrypoints/openai/parser/harmony_utils.py b/vllm/entrypoints/openai/parser/harmony_utils.py
+index 9b4264456..4e5b97967 100644
+--- a/vllm/entrypoints/openai/parser/harmony_utils.py
++++ b/vllm/entrypoints/openai/parser/harmony_utils.py
+@@ -329,7 +329,12 @@ def get_stop_tokens_for_assistant_actions() -> list[int]:
+ 
+ 
+ def get_streamable_parser_for_assistant() -> StreamableParser:
+-    return StreamableParser(get_encoding(), role=Role.ASSISTANT)
++    # strict=False works around openai/harmony#80: gpt-oss frequently omits
++    # the <|message|> token before a refusal's analysis-channel text, which
++    # the strict parser hard-errors on ("unexpected tokens remaining in
++    # message header"). Fixed in openai-harmony>=0.0.6 but opt-in only; vLLM
++    # must pass it explicitly. See docs/oss-20b-pinned-generator-parity.md.
++    return StreamableParser(get_encoding(), role=Role.ASSISTANT, strict=False)
+ 
+ 
+ def parse_output_into_messages(token_ids: Iterable[int]) -> StreamableParser:

@@ -70,6 +70,20 @@ def main() -> None:
     )
     parser.add_argument("--max-output-tokens", type=int, default=10_000)
     parser.add_argument("--generator-timeout-seconds", type=float, default=2400.0)
+    parser.add_argument(
+        "--context-budget-tokens",
+        type=int,
+        default=128_000,
+        help=(
+            "Once a turn's prompt reaches this many tokens (model context "
+            "is 131072), stop declaring the search tool and instruct the "
+            "model to write its final answer instead. Without this, a "
+            "query near the context ceiling can spend dozens of iterations "
+            "producing only truncated reasoning fragments (tool_call_count "
+            "0, response_status incomplete) with no way to terminate short "
+            "of max_iterations."
+        ),
+    )
     parser.add_argument("--quiet-progress", action="store_true")
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
@@ -224,6 +238,7 @@ def main() -> None:
         max_iterations=args.max_iterations,
         max_search_calls=args.max_search_calls,
         max_generation_retries=args.max_generation_retries,
+        context_budget_tokens=args.context_budget_tokens,
         progress_callback=progress,
     )
     progress(
@@ -234,6 +249,7 @@ def main() -> None:
             "max_iterations": args.max_iterations,
             "max_search_calls": args.max_search_calls,
             "max_generation_retries": args.max_generation_retries,
+            "context_budget_tokens": args.context_budget_tokens,
             "generator_timeout_seconds": args.generator_timeout_seconds,
         }
     )

@@ -2,6 +2,30 @@
 
 Date: 2026-07-23
 
+> **Status update (2026-07-23, later):** the g3 server turned out to be
+> vLLM **0.19.1**, not a broken older build, and after the client fixes
+> (tolerant `user_query` parsing, error feedback instead of hard abort,
+> bounded retries) queries 703 and 215 completed with real searches on it.
+> Therefore run Step 3 (dev-100 batch) directly on the current 0.19.1
+> server and record `curl :8000/version` with the run. Steps 1–2 below
+> (pinned image) are now the **escalation fallback**, used only if recall
+> misses the 0.44–0.54 band or Harmony failures survive 3 retries.
+>
+> **Correction (2026-07-23, evening):** the `unexpected tokens remaining in
+> message header` 500s are **not** generic temperature-related noise —
+> they are [openai/harmony#80](https://github.com/openai/harmony/issues/80):
+> gpt-oss frequently omits the `<|message|>` token before a refusal's
+> analysis-channel text, and the strict Harmony parser hard-errors on it.
+> This is deterministic per-query (a query whose honest answer trends
+> toward refusal can hit it on every retry, not just occasionally), so
+> "bounded retries absorb them" cannot be assumed. The upstream library fix
+> shipped in `openai-harmony>=0.0.6` but is **opt-in** (`strict=False`
+> constructor argument) and vLLM 0.19.1 does not pass it — confirmed our
+> server's installed `openai-harmony==0.0.8` still reproduces the exact
+> failure with vLLM's default (non-strict-disabled) parser construction.
+> Apply `patches/vllm-0.19.1-harmony-strict-false.patch` to the installed
+> vLLM before running Step 3; see the preflight below.
+
 ## Why this run exists
 
 The bare-metal g3 vLLM build fails on GPT-OSS Harmony tool calls: HTTP 500s,
@@ -24,10 +48,16 @@ defaults (including prefix caching on). Never use rows from it for latency or
 KV-cache reporting; the instrumented measurement configuration comes after
 parity passes.
 
-Reference numbers (upstream evaluation summary for `openai/gpt-oss-20b`):
-Accuracy 32.17%, Recall 43.0%, mean 12.6 searches/query over all 830 queries.
+Reference numbers (BrowseComp-Plus paper, Table 4, `gpt-oss-20B-high` +
+`Qwen3-Embed-8B` row — matches this runbook's `--reasoning-effort high`):
+Accuracy 34.58%, Recall 49.29%, mean 23.87 searches/query, Calibration Error
+27.81%, over all 830 queries. (An earlier draft of this doc cited
+32.17%/43.0%/12.6 searches; that number does not correspond to any row in
+Table 4 and was likely transcribed from a different table/version — do not
+use it.)
 On the 100-query development split, sampling noise widens the recall gate to
-a band: **0.38–0.48 mean trajectory evidence recall**.
+a band: **0.44–0.54 mean trajectory evidence recall** (same ±5-point half
+width as before, recentered on 0.4929).
 
 ## Step 1 — Serve gpt-oss-20b from the pinned build (g3, SXM4 A100)
 
@@ -108,6 +138,32 @@ Smoke gate, all required:
 
 Repeat for 2–3 more development IDs before committing to the batch.
 
+## Step 2.5 — Patch the Harmony refusal-parsing bug (g3, before starting the generator)
+
+Apply `patches/vllm-0.19.1-harmony-strict-false.patch` to the installed
+vLLM before serving. It changes one function
+(`get_streamable_parser_for_assistant` in
+`vllm/entrypoints/openai/parser/harmony_utils.py`) to construct the Harmony
+`StreamableParser` with `strict=False`, working around
+[openai/harmony#80](https://github.com/openai/harmony/issues/80). This is a
+pure-Python file inside the installed package — no vLLM rebuild, no
+recompiled kernels, just an edit and a server restart.
+
+```bash
+HARMONY_UTILS_PATH=$(python -c \
+  "import vllm.entrypoints.openai.parser.harmony_utils as m; print(m.__file__)")
+echo "$HARMONY_UTILS_PATH"
+patch -p1 --directory "$(dirname "$(dirname "$(dirname "$(dirname "$(dirname "$HARMONY_UTILS_PATH")")")")")" \
+  < /mnt/nvme2/mlee/rag-system/patches/vllm-0.19.1-harmony-strict-false.patch
+grep -n "strict=False" "$HARMONY_UTILS_PATH"
+```
+
+If `patch` reports "previously applied" or the `grep` above already finds
+`strict=False`, the patch is already in place — do not reapply. Reapply
+after any vLLM reinstall/upgrade on g3, since it lives inside
+`site-packages` and is not tracked by pip. Record whether the patch was
+present in the run's provenance notes alongside `curl :8000/version`.
+
 ## Step 3 — Development-split recall batch (p7)
 
 Same command as `docs/oss-20b-standard-overnight.md`, with a fresh output
@@ -128,8 +184,8 @@ python scripts/summarize_agent_runs.py \
 
 Parity gate:
 
-- `evidence_recall_mean` in **0.38–0.48**;
-- `search_calls_mean` roughly 8–18 (leaderboard mean 12.6);
+- `evidence_recall_mean` in **0.44–0.54**;
+- `search_calls_mean` roughly 19–29 (leaderboard mean 23.87);
 - `status_counts` dominated by `completed`; no `error` rows from Harmony
   parsing;
 - most rows `final_answer_format_valid=true`.

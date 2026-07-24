@@ -16,22 +16,30 @@ that document remain authoritative.
    qrels, which breaks deterministic systems measurement. BCP already
    provides the fixed corpus, document qrels, a passed retrieval
    reproduction, and a generation-heavy agentic workload.
-2. **The generator baseline is gpt-oss-20b on a pinned upstream vLLM.** The
-   bare-metal g3 build fails GPT-OSS Harmony tool calls (HTTP 500,
-   `invalid_tool_call`, `unexpected tokens remaining in message header
-   to=functions.local_knowledge_base_retrieval`; vllm-project/vllm#23567
-   class). A crashed run that reached 0.83 evidence / 0.75 gold recall in 8
-   searches proves the model and two-host scaffold are healthy. Upstream's
-   leaderboard runs used pinned images (`vllm/vllm-openai:v0.10.1` and
-   `:gptoss`); parity means serving from one of those. Runbook with exact
-   commands and gates: `docs/oss-20b-pinned-generator-parity.md`.
+2. **The generator baseline is gpt-oss-20b; the server is vLLM 0.19.1**
+   (corrected the same evening: the earlier "broken build, pin to v0.10.1"
+   diagnosis was wrong). The failures decomposed into (a) client-side
+   strictness — the runner demanded argument keys exactly `{"user_query"}`
+   and hard-aborted the run on any imperfect call — fixed the same day to
+   match upstream's tolerant parse-and-feed-back-errors behavior; (b)
+   transient `unexpected tokens remaining in message header` 500s
+   (vllm#23567 class): at temperature 0.7 the model occasionally emits
+   Harmony tokens the parser rejects, on any version, and bounded retries
+   absorb them; (c) native-browser `mcp_call` aliases, already normalized.
+   After the fixes, queries 703 and 215 completed with real searches on
+   0.19.1. The pinned upstream images (`vllm/vllm-openai:v0.10.1`,
+   `:gptoss`) are the escalation fallback only. Runbook and gates:
+   `docs/oss-20b-pinned-generator-parity.md`.
 3. **Parity run vs measurement run.** Leaderboard parity uses upstream
    defaults (prefix caching on, no telemetry flags) and its rows are never
    used for latency/KV reporting. The instrumented sequential scaffold with
    prefix caching disabled remains the only source of measurement rows.
 4. **Recall gate only for parity.** Dev-100 mean trajectory evidence recall
-   in 0.38–0.48 (leaderboard 43.0% on 830 queries, mean 12.6 searches/query)
-   passes; the Qwen3-32B judge accuracy check is deferred.
+   in 0.44–0.54 (BrowseComp-Plus paper Table 4, `gpt-oss-20B-high` +
+   `Qwen3-Embed-8B`: 49.29% recall on 830 queries, mean 23.87 searches/query)
+   passes; the Qwen3-32B judge accuracy check is deferred. (Corrected from an
+   earlier 32.17%/43.0%/12.6-searches figure that didn't match any row in
+   Table 4.)
 5. **Single-pass first.** The first systems deliverable is the no-tool
    single-pass baseline over the frozen `top1000.trec` (top-k documents,
    512-token Standard snippets, one Responses call). It is immune to Harmony
@@ -65,7 +73,7 @@ that document remain authoritative.
    `vllm/vllm-openai:v0.10.1` (or `vllm==0.10.1` venv). Record `/version`.
 2. p7: one-query smoke via `run_oss_standard_agent.py`; gates in the runbook.
 3. p7: dev-100 batch into `development-pinned-v0101`; check
-   `summarize_agent_runs.py` recall against the 0.38–0.48 band.
+   `summarize_agent_runs.py` recall against the 0.44–0.54 band.
 4. p7: single-pass smoke, then dev-100 at k=5, then k=10/k=20 sweeps.
 5. Escalate per the runbook ladder if gates fail; single-pass proceeds
    regardless.

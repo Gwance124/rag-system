@@ -787,3 +787,122 @@ def test_oss_standard_agent_recovers_from_context_overflow_by_dropping_oldest_tu
             "remaining_turns": 1,
         }
     ]
+
+
+def test_oss_standard_agent_forces_final_answer_when_context_budget_reached():
+    progress_events = []
+    responses = FakeResponsesClient(
+        [
+            {
+                "id": "resp-1",
+                "status": "completed",
+                "usage": {"input_tokens": 5, "output_tokens": 5},
+                "output": [
+                    {
+                        "type": "function_call",
+                        "name": "local_knowledge_base_retrieval",
+                        "call_id": "call-1",
+                        "arguments": json.dumps({"user_query": "first search"}),
+                    }
+                ],
+            },
+            _final_answer_response("resp-2"),
+        ]
+    )
+    search = FakeSearchClient()
+
+    record = OssStandardAgentWorkflow(
+        responses,
+        search,
+        context_budget_tokens=5,
+        progress_callback=progress_events.append,
+    ).run(benchmark_query())
+
+    assert record["status"] == "completed"
+    assert record["diagnostics"]["termination_reason"] == "final_answer"
+    assert record["diagnostics"]["context_budget_triggered"] is True
+    assert record["diagnostics"]["context_budget_tokens"] == 5
+
+    # Second request must decline the search tool entirely and carry the
+    # stop-and-answer nudge as the newest turn.
+    second_input, second_tools = responses.requests[1]
+    assert second_tools == []
+    assert second_input[-1] == {
+        "role": "user",
+        "content": (
+            "You are approaching the model's context limit. Stop searching "
+            "now and write your final answer immediately, using only the "
+            "evidence already gathered, in the required Explanation / Exact "
+            "Answer / Confidence format."
+        ),
+    }
+    assert "context_budget_final_answer_forced" in [
+        event["event"] for event in progress_events
+    ]
+
+
+def test_oss_standard_agent_rejects_search_attempted_after_context_budget():
+    """gpt-oss can still emit a search call with no tools declared (it
+
+    reaches for tools it used earlier in the transcript regardless of what's
+    offered this turn); the workflow must reject rather than execute it.
+    """
+
+    responses = FakeResponsesClient(
+        [
+            {
+                "id": "resp-1",
+                "status": "completed",
+                "usage": {"input_tokens": 5, "output_tokens": 5},
+                "output": [
+                    {
+                        "type": "function_call",
+                        "name": "local_knowledge_base_retrieval",
+                        "call_id": "call-1",
+                        "arguments": json.dumps({"user_query": "first search"}),
+                    }
+                ],
+            },
+            {
+                "id": "resp-2",
+                "status": "completed",
+                "usage": {"input_tokens": 5, "output_tokens": 5},
+                "output": [
+                    {
+                        "type": "function_call",
+                        "name": "local_knowledge_base_retrieval",
+                        "call_id": "call-2",
+                        "arguments": json.dumps({"user_query": "second search"}),
+                    }
+                ],
+            },
+            _final_answer_response("resp-3"),
+        ]
+    )
+    search = FakeSearchClient()
+
+    record = OssStandardAgentWorkflow(
+        responses,
+        search,
+        context_budget_tokens=5,
+    ).run(benchmark_query())
+
+    assert record["status"] == "completed"
+    # The first search (turn 1, before the budget check ever runs) executes
+    # normally; the second (turn 2, after tools=[] was declared) is rejected.
+    assert record["tool_call_counts"] == {"search": 1}
+    assert search.queries == ["first search"]
+    assert record["diagnostics"]["context_budget_triggered"] is True
+
+    third_input, third_tools = responses.requests[2]
+    assert third_tools == []
+    rejected_output = next(
+        item
+        for item in third_input
+        if item.get("call_id") == "call-2"
+        and item.get("type") == "function_call_output"
+    )
+    assert rejected_output["output"] == (
+        "Error: the context budget has been reached. No further searches "
+        "are permitted; provide your final answer now."
+    )

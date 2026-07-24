@@ -52,8 +52,9 @@ experiments.
 Week 1 now targets two BrowseComp-Plus baselines with gpt-oss-20b and
 Qwen3-Embedding-8B on the official precomputed document index: (a) the
 Standard agent baseline (search-only tool, top 5 results, at most 512 tokens
-per result) served from the pinned upstream vLLM image for leaderboard recall
-parity, and (b) the no-tool single-pass baseline over the frozen top-1000
+per result) for leaderboard recall parity, run on the recorded current g3
+vLLM (0.19.1) with the pinned upstream image as the escalation fallback,
+and (b) the no-tool single-pass baseline over the frozen top-1000
 ranking with a top-k in {5, 10, 20} sweep. Do not add `get_document`, custom
 chunking, reranking, subagents, concurrency experiments, or an LLM judge
 before those baselines pass. Keep parity rows (upstream server defaults) and

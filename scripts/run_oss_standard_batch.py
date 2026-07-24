@@ -44,6 +44,7 @@ def main() -> None:
     parser.add_argument("--max-search-calls", type=int, default=100)
     parser.add_argument("--max-generation-retries", type=int, default=2)
     parser.add_argument("--max-output-tokens", type=int, default=10_000)
+    parser.add_argument("--context-budget-tokens", type=int, default=128_000)
     parser.add_argument("--generator-timeout-seconds", type=float, default=2400.0)
     parser.add_argument("--quiet-query-progress", action="store_true")
     args = parser.parse_args()
@@ -148,6 +149,8 @@ def main() -> None:
             str(args.max_generation_retries),
             "--max-output-tokens",
             str(args.max_output_tokens),
+            "--context-budget-tokens",
+            str(args.context_budget_tokens),
             "--generator-timeout-seconds",
             str(args.generator_timeout_seconds),
             # The batch skips completed artifacts. Force only clears an
@@ -186,6 +189,7 @@ def main() -> None:
         "max_iterations": args.max_iterations,
         "max_search_calls": args.max_search_calls,
         "max_generation_retries": args.max_generation_retries,
+        "context_budget_tokens": args.context_budget_tokens,
         "generator_timeout_seconds": args.generator_timeout_seconds,
         "sequential": True,
         "resume_policy": "skip_valid_run_artifacts",

@@ -322,6 +322,19 @@ def _drop_oldest_turn(turns: list[list[dict[str, Any]]]) -> bool:
     return True
 
 
+_CONTEXT_BUDGET_STOP_MESSAGE = (
+    "You are approaching the model's context limit. Stop searching now and "
+    "write your final answer immediately, using only the evidence already "
+    "gathered, in the required Explanation / Exact Answer / Confidence "
+    "format."
+)
+
+_CONTEXT_BUDGET_REJECTED_SEARCH_OUTPUT = (
+    "Error: the context budget has been reached. No further searches are "
+    "permitted; provide your final answer now."
+)
+
+
 @dataclass(frozen=True)
 class OssStandardAgentWorkflow:
     responses_client: ResponsesClient
@@ -329,6 +342,7 @@ class OssStandardAgentWorkflow:
     max_iterations: int = 100
     max_search_calls: int = 100
     max_generation_retries: int = 2
+    context_budget_tokens: int = 128_000
     progress_callback: Callable[[dict[str, Any]], None] | None = None
 
     def _progress(self, event: str, **details: Any) -> None:
@@ -361,8 +375,26 @@ class OssStandardAgentWorkflow:
         termination_reason = "max_iterations"
         run_error: dict[str, Any] | None = None
         final_answer_validation: dict[str, Any] | None = None
+        last_prompt_tokens = 0
+        context_budget_triggered = False
 
         for iteration in range(1, self.max_iterations + 1):
+            if (
+                not context_budget_triggered
+                and last_prompt_tokens >= self.context_budget_tokens
+            ):
+                context_budget_triggered = True
+                turns.append(
+                    [{"role": "user", "content": _CONTEXT_BUDGET_STOP_MESSAGE}]
+                )
+                self._progress(
+                    "context_budget_final_answer_forced",
+                    turn=iteration,
+                    prompt_tokens=last_prompt_tokens,
+                    context_budget_tokens=self.context_budget_tokens,
+                )
+            tools_for_turn = [] if context_budget_triggered else OSS_SEARCH_TOOLS
+
             self._progress(
                 "generation_started",
                 turn=iteration,
@@ -375,7 +407,7 @@ class OssStandardAgentWorkflow:
                 input_items = [item for turn in turns for item in turn]
                 try:
                     response = self.responses_client.complete(
-                        input_items, OSS_SEARCH_TOOLS
+                        input_items, tools_for_turn
                     )
                     break
                 except VllmContextLengthError as exc:
@@ -432,6 +464,10 @@ class OssStandardAgentWorkflow:
             output = response["output"]
             usage = response.get("usage")
             generation_usage.append(usage)
+            if isinstance(usage, dict) and isinstance(
+                usage.get("input_tokens"), int
+            ):
+                last_prompt_tokens = usage["input_tokens"]
             item_types = [
                 item.get("type") for item in output if isinstance(item, dict)
             ]
@@ -533,6 +569,30 @@ class OssStandardAgentWorkflow:
             current_turn = list(normalized_output)
             if rejected_outputs:
                 current_turn.extend(rejected_outputs)
+
+            if context_budget_triggered and function_calls:
+                # gpt-oss can still emit a search call even when no tools are
+                # declared for this turn (it reaches for tools it has used
+                # earlier in the transcript regardless of what's offered
+                # now). Reject rather than execute, so crossing the budget
+                # reliably stops searching instead of merely discouraging it.
+                for function_call in function_calls:
+                    call_id = (
+                        function_call.get("call_id")
+                        if isinstance(function_call, dict)
+                        else None
+                    )
+                    if isinstance(call_id, str) and call_id:
+                        current_turn.append(
+                            {
+                                "type": "function_call_output",
+                                "call_id": call_id,
+                                "output": _CONTEXT_BUDGET_REJECTED_SEARCH_OUTPUT,
+                            }
+                        )
+                turns.append(current_turn)
+                termination_reason = "context_budget_search_rejected"
+                continue
 
             if not function_calls:
                 final_text = "\n".join(
@@ -723,6 +783,8 @@ class OssStandardAgentWorkflow:
                 "max_iterations": self.max_iterations,
                 "max_search_calls": self.max_search_calls,
                 "max_generation_retries": self.max_generation_retries,
+                "context_budget_tokens": self.context_budget_tokens,
+                "context_budget_triggered": context_budget_triggered,
                 "generation_usage": generation_usage,
                 "generation_steps": generation_steps,
                 "search_steps": search_steps,

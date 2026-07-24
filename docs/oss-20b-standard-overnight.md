@@ -23,6 +23,25 @@ query as `status: incomplete` with
 next query. This is a failed benchmark row, not a reason to abort the remaining
 development split or to advertise a larger synthetic context window.
 
+`--context-budget-tokens` (default 128,000) guards a related but distinct
+pathology observed on query 1035 (2026-07-23): once a query's running prompt
+gets close to 131,072, `_drop_oldest_turn` can free just enough room for one
+more turn without ever tripping the hard vLLM context-length exception again,
+leaving only single-digit-to-low-hundreds of output tokens per turn — not
+enough to complete a Harmony message. The model then emits `reasoning`-only
+output every turn, tool_call_count 0, response_status `incomplete`, and the
+`reasoning_only_retry` recovery path (which exists for a genuinely transient
+truncated turn) retries forever with no way out short of `max_iterations`
+(50+ wasted turns observed, no progress, no scorable answer). Once the
+running prompt crosses this threshold, the workflow stops declaring the
+search tool and appends an instruction to answer immediately with whatever
+evidence has been gathered; if the model still tries to search anyway (it
+can, regardless of what tools are declared this turn — see
+`docs/oss-20b-pinned-generator-parity.md`), the call is rejected rather than
+executed. See `context_budget_final_answer_forced` and
+`context_budget_search_rejected` in the progress log, and
+`diagnostics.context_budget_triggered` in the run record.
+
 ## Preflight
 
 On p7, set paths without placing decrypted benchmark text in the shell history:
@@ -94,6 +113,7 @@ PYTHONUNBUFFERED=1 python scripts/run_oss_standard_batch.py \
   --max-output-tokens 10000 \
   --max-iterations 100 \
   --max-search-calls 100 \
+  --context-budget-tokens 128000 \
   --generator-timeout-seconds 2400 \
   2>&1 | tee -a "$RAG_RUN_DIR/overnight.log"
 ```
